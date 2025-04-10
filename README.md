@@ -17,6 +17,17 @@ A web-based interface allowing users to direct, observe, and control an AI agent
   poetry install
   ```
 
+3. Add your API keys for the provider you want to use to your `.env` file:
+
+  ```bash
+  OPENAI_API_KEY=
+  ANTHROPIC_API_KEY=
+  AZURE_ENDPOINT=
+  AZURE_OPENAI_API_KEY=
+  GEMINI_API_KEY=
+  DEEPSEEK_API_KEY=
+  ```
+
 ## Contributors
 
 - Ritanshu Dokania
