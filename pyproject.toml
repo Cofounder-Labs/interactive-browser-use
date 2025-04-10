@@ -1,0 +1,31 @@
+[project]
+name = "interactive-browser-use"
+version = "0.1.0"
+description = "A web-based interface allowing users to direct, observe, and control an AI agent performing browser automation tasks in real-time with interactive step approval"
+authors = [
+    {name = "Ritanshu Dokania",email = "ritanshudokania@gmail.com"},
+    {name = "Re Solver",email="sled-79-slender@icloud.com"},
+]
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "browser-use (>=0.1.40,<0.2.0)",
+    "fastapi (>=0.115.12,<0.116.0)",
+    "uvicorn (>=0.34.0,<0.35.0)",
+    "websockets (>=15.0.1,<16.0.0)",
+    "pydantic (>=2.11.3,<3.0.0)",
+    "python-dotenv (>=1.1.0,<2.0.0)"
+]
+
+[tool.poetry]
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3.5"
+pytest-asyncio = "^0.26.0"
+black = "^25.1.0"
+isort = "^6.0.1"
+flake8 = "^7.2.0"
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
