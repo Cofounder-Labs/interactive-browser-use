@@ -7,9 +7,13 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from dotenv import load_dotenv
 
 def check_env_vars():
     """Check if required environment variables are set."""
+    # Load environment variables from .env file
+    load_dotenv()
+    
     # Check for either OpenAI or Azure OpenAI credentials
     has_openai = bool(os.getenv("OPENAI_API_KEY"))
     has_azure = bool(os.getenv("AZURE_ENDPOINT") and os.getenv("AZURE_OPENAI_API_KEY"))
