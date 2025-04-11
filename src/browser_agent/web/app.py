@@ -16,6 +16,7 @@ import uuid
 import asyncio
 from browser_agent.agent import BrowserAgent
 from langchain_openai import ChatOpenAI
+from browser_agent.utils.chrome import launch_chrome_with_debugging
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -54,6 +55,12 @@ class TaskResponse(BaseModel):
     """Task response model."""
     task_id: str
     status: str
+
+@app.on_event("startup")
+async def startup_event():
+    """Launch Chrome with debugging on startup"""
+    if not launch_chrome_with_debugging():
+        raise RuntimeError("Failed to launch Chrome with debugging enabled")
 
 @app.get("/")
 async def get():

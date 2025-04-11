@@ -10,6 +10,7 @@ from rich.logging import RichHandler
 import logging
 import os
 import asyncio
+from .utils.chrome import launch_chrome_with_debugging, get_browser_instance
 
 class BrowserAgent:
     """Wrapper class for browser-use functionality."""
@@ -25,6 +26,7 @@ class BrowserAgent:
         self.task = task
         self.on_event = on_event
         self.agent = None
+        self.browser = None
         self._setup_logging()
         
     def _setup_logging(self):
@@ -61,10 +63,19 @@ class BrowserAgent:
                 raise ValueError("OPENAI_API_KEY environment variable is required")
             
             llm = ChatOpenAI(
-                model="gpt-4o",
+                model="gpt-4",
                 temperature=0,
                 openai_api_key=os.getenv("OPENAI_API_KEY")
             )
+            
+            # Launch Chrome with debugging if not already running
+            if not launch_chrome_with_debugging():
+                raise RuntimeError("Failed to launch Chrome with debugging enabled")
+            
+            # Get browser instance
+            self.browser = get_browser_instance()
+            if not self.browser:
+                raise RuntimeError("Failed to create browser instance")
             
             # Create a more specific task description
             specific_task = f"""
@@ -85,7 +96,8 @@ class BrowserAgent:
                 task=specific_task,
                 llm=llm,
                 use_vision=False,  # Disable vision to reduce complexity
-                max_failures=2     # Limit the number of retries
+                max_failures=2,    # Limit the number of retries
+                browser=self.browser  # Use our pre-launched browser instance
             )
             
             self.logger.debug("Agent created, starting task execution...")
@@ -112,4 +124,7 @@ class BrowserAgent:
         """Stop the agent and clean up resources."""
         if self.agent:
             self.agent = None
-            self.logger.debug("Agent stopped") 
+            self.logger.debug("Agent stopped")
+        
+        # Don't close the browser instance as it's shared
+        self.browser = None 
