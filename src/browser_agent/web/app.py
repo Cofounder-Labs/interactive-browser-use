@@ -59,7 +59,9 @@ class TaskResponse(BaseModel):
 @app.on_event("startup")
 async def startup_event():
     """Launch Chrome with debugging on startup"""
-    if not launch_chrome_with_debugging():
+    port = int(os.getenv("CHROME_DEBUG_PORT", "9222"))
+    app_port = int(os.getenv("APP_PORT", "8000"))
+    if not launch_chrome_with_debugging(port=port, app_port=app_port):
         raise RuntimeError("Failed to launch Chrome with debugging enabled")
 
 @app.get("/")

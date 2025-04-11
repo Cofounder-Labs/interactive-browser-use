@@ -5,7 +5,7 @@ import requests
 from typing import Optional
 from browser_use import Browser, BrowserConfig
 
-def launch_chrome_with_debugging(port: int = 9222) -> bool:
+def launch_chrome_with_debugging(port: int = 9222, app_port: int = 8000) -> bool:
     """Launch Chrome with remote debugging enabled"""
     chrome_path = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
     if not os.path.exists(chrome_path):
@@ -26,11 +26,12 @@ def launch_chrome_with_debugging(port: int = 9222) -> bool:
     subprocess.run(['pkill', '-f', f'remote-debugging-port={port}'])
     time.sleep(1)  # Wait for processes to be killed
     
-    # Launch Chrome with remote debugging
+    # Launch Chrome with remote debugging and open the application URL
     subprocess.Popen([
         chrome_path,
         f'--remote-debugging-port={port}',
-        '--user-data-dir=/tmp/chrome-debug-profile'
+        '--user-data-dir=/tmp/chrome-debug-profile',
+        f'http://localhost:{app_port}'  # Open the application URL
     ])
     time.sleep(2)  # Wait for Chrome to start
     print("Launched new Chrome instance with remote debugging enabled")

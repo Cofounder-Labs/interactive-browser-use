@@ -82,12 +82,14 @@ class BrowserAgent:
             {self.task}
             
             Instructions:
-            1. Navigate to Google's search page
-            2. Enter the search term in the search box
-            3. Click the search button
-            4. Wait for results to load
-            5. Stop when the search results are visible
+            1. Open a new tab in the browser
+            2. In the new tab, navigate to Google's search page
+            3. Enter the search term in the search box
+            4. Click the search button
+            5. Wait for results to load
+            6. Stop when the search results are visible
             
+            Important: Always perform actions in a new tab, never modify the current tab.
             Please complete this task step by step and stop when you see the search results.
             """
             
