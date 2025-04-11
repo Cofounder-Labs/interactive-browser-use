@@ -68,3 +68,6 @@ dmypy.json
 
 # pyenv
 .python-version
+
+# cursor
+.cursor/
