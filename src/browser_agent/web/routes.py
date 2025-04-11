@@ -2,118 +2,170 @@
 API routes for browser agent control and WebSocket communication.
 """
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel
-from typing import Optional, Dict, Any
+from typing import Dict, Any, List, Optional
 import logging
 import asyncio
+import uuid
 from ..agent import BrowserAgent
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
-# Create routers
-agent_router = APIRouter(prefix="/api", tags=["agent"])
-ws_router = APIRouter(tags=["websocket"])
+# Create router
+api_router = APIRouter(prefix="/api", tags=["agent"])
 
 # Models for request/response
-class TaskRequest(BaseModel):
-    task: str
-    auto_approve: bool = False
+class TaskCreateRequest(BaseModel):
+    description: str
 
-class TaskResponse(BaseModel):
+class TaskStatusResponse(BaseModel):
     task_id: str
+    description: str
     status: str
-    message: str
+    events: List[Dict[str, Any]]
 
-# Store active agents and their WebSocket connections
-active_agents: Dict[str, BrowserAgent] = {}
-active_connections: Dict[str, WebSocket] = {}
+class TaskInfo(BaseModel):
+    task_id: str
+    description: str
+    status: str
+    message: Optional[str] = None
 
-@agent_router.post("/task", response_model=TaskResponse)
-async def create_task(task_request: TaskRequest, background_tasks: BackgroundTasks):
-    """Create a new browser automation task."""
+# Store active tasks and their states
+# Structure: {task_id: {"agent": BrowserAgent, "description": str, "status": str, "events": []}}
+active_tasks: Dict[str, Dict[str, Any]] = {}
+
+# --- Callback functions to update task state ---
+
+async def _handle_event(task_id: str, event: Dict[str, Any]):
+    """Appends an event received from the agent to the task's event list."""
+    if task_id in active_tasks:
+        # Store the raw event dictionary
+        active_tasks[task_id]["events"].append(event)
+        event_type = event.get("type", "unknown")
+        message = event.get("message", str(event))
+        logger.info(f"Task {task_id}: Event '{event_type}' - {message}")
+    else:
+        logger.warning(f"Task {task_id} not found when handling event: {event}")
+
+async def _run_agent_task(task_id: str):
+    """Runs the agent's start method and handles completion/failure."""
+    if task_id not in active_tasks:
+        logger.error(f"Task {task_id} not found for running.")
+        return
+
+    task_state = active_tasks[task_id]
+    agent = task_state["agent"]
+    
     try:
-        # Create a unique task ID
-        task_id = f"task_{len(active_agents) + 1}"
+        logger.info(f"Task {task_id}: Starting agent.")
+        task_state["status"] = "running"
+        await agent.start() # Agent runs to completion or failure
         
-        # Initialize the agent with event callback
-        async def on_event(event: Dict[str, Any]):
-            if task_id in active_connections:
-                await active_connections[task_id].send_json(event)
+        # Check final state if not already failed or stopped
+        if task_state["status"] == "running": # Check if it wasn't stopped externally
+             logger.info(f"Task {task_id}: Agent task completed successfully.")
+             task_state["status"] = "completed"
+             # Use the callback to log completion event
+             await _handle_event(task_id, {"type": "info", "message": "Task completed successfully."}) 
+
+    except Exception as e:
+        logger.error(f"Task {task_id}: Agent task failed: {str(e)}")
+        if task_id in active_tasks: # Check if task wasn't stopped/deleted
+            task_state["status"] = "failed"
+            # Use the callback to log the error event
+            await _handle_event(task_id, {"type": "error", "message": f"Task execution failed: {str(e)}"}) 
+    # Note: No explicit cleanup here, task remains in active_tasks unless stopped
+
+# --- API Endpoints ---
+
+@api_router.post("/tasks", response_model=TaskInfo, status_code=201)
+async def create_task(task_request: TaskCreateRequest, background_tasks: BackgroundTasks):
+    """Creates a new browser automation task and starts it."""
+    task_id = str(uuid.uuid4())
+    description = task_request.description
+
+    try:
+        # Create task-specific event callback
+        async def on_event_wrapper(event: Dict[str, Any]):
+            await _handle_event(task_id, event)
+
+        # Initialize agent with the event callback
+        # NOTE: This still assumes BrowserAgent uses this callback. 
+        # Based on agent.py, it might not be called frequently or at all.
+        agent = BrowserAgent(
+            task=description, 
+            on_event=on_event_wrapper, 
+        )
         
-        agent = BrowserAgent(task_request.task, on_event=on_event)
-        active_agents[task_id] = agent
+        active_tasks[task_id] = {
+            "agent": agent,
+            "description": description,
+            "status": "created",
+            "events": [],
+        }
         
-        # Start the agent in the background if auto-approve is enabled
-        if task_request.auto_approve:
-            background_tasks.add_task(agent.start)
+        # Add the agent execution to background tasks
+        background_tasks.add_task(_run_agent_task, task_id)
         
-        return TaskResponse(
+        logger.info(f"Task {task_id} created: {description}")
+        return TaskInfo(
             task_id=task_id,
+            description=description,
             status="created",
-            message="Task created successfully"
+            message="Task created and initiated successfully."
         )
         
     except Exception as e:
-        logger.error(f"Error creating task: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error creating task '{description}': {str(e)}")
+        if task_id in active_tasks:
+            del active_tasks[task_id]
+        raise HTTPException(status_code=500, detail=f"Failed to create task: {str(e)}")
 
-@agent_router.post("/task/{task_id}/start")
-async def start_task(task_id: str, background_tasks: BackgroundTasks):
-    """Start a browser automation task."""
-    if task_id not in active_agents:
+@api_router.get("/tasks/{task_id}", response_model=TaskStatusResponse)
+async def get_task_status(task_id: str):
+    """Retrieves the current status and events for a task."""
+    if task_id not in active_tasks:
         raise HTTPException(status_code=404, detail="Task not found")
     
-    try:
-        agent = active_agents[task_id]
-        background_tasks.add_task(agent.start)
-        return {"status": "started", "message": "Task started successfully"}
-    except Exception as e:
-        logger.error(f"Error starting task: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+    task_state = active_tasks[task_id]
+    
+    return TaskStatusResponse(
+        task_id=task_id,
+        description=task_state["description"],
+        status=task_state["status"],
+        events=task_state["events"],
+    )
 
-@agent_router.post("/task/{task_id}/stop")
+@api_router.post("/tasks/{task_id}/stop", response_model=TaskInfo)
 async def stop_task(task_id: str):
-    """Stop a browser automation task."""
-    if task_id not in active_agents:
+    """Stops a running browser automation task."""
+    if task_id not in active_tasks:
         raise HTTPException(status_code=404, detail="Task not found")
     
-    try:
-        agent = active_agents[task_id]
-        await agent.stop()
-        del active_agents[task_id]
-        return {"status": "stopped", "message": "Task stopped successfully"}
-    except Exception as e:
-        logger.error(f"Error stopping task: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@ws_router.websocket("/ws/{task_id}")
-async def websocket_endpoint(websocket: WebSocket, task_id: str):
-    """WebSocket endpoint for real-time task updates."""
-    if task_id not in active_agents:
-        await websocket.close(code=4004, reason="Task not found")
-        return
+    task_state = active_tasks[task_id]
+    agent = task_state["agent"]
     
+    # Check if task is already in a terminal state
+    if task_state["status"] in ["stopped", "completed", "failed"]:
+        return TaskInfo(task_id=task_id, description=task_state["description"], status=task_state["status"], message="Task was already inactive.")
+
     try:
-        await websocket.accept()
-        active_connections[task_id] = websocket
+        logger.info(f"Task {task_id}: Attempting to stop agent.")
+        await agent.stop() # Assuming agent.stop() is async
+        task_state["status"] = "stopped"
+        await _handle_event(task_id, {"type": "info", "message": "Task stopped by user request."}) # Log stop event
+        logger.info(f"Task {task_id}: Agent stopped successfully.")
         
-        try:
-            while True:
-                # Keep the connection alive and handle client messages
-                data = await websocket.receive_json()
-                if data.get("type") == "approve_step":
-                    # Handle step approval logic here
-                    pass
-                
-        except WebSocketDisconnect:
-            logger.info(f"WebSocket disconnected for task {task_id}")
-        finally:
-            if task_id in active_connections:
-                del active_connections[task_id]
-                
+        return TaskInfo(
+            task_id=task_id, 
+            description=task_state["description"],
+            status="stopped", 
+            message="Task stopped successfully."
+        )
     except Exception as e:
-        logger.error(f"WebSocket error: {str(e)}")
-        if task_id in active_connections:
-            del active_connections[task_id] 
+        logger.error(f"Task {task_id}: Error stopping task: {str(e)}")
+        task_state["status"] = "failed" 
+        await _handle_event(task_id, {"type": "error", "message": f"Error stopping task: {str(e)}"}) # Log stop error
+        raise HTTPException(status_code=500, detail=f"Failed to stop task cleanly: {str(e)}") 

@@ -1,179 +1,184 @@
 const app = Vue.createApp({
     data() {
         return {
-            connected: false,
             taskDescription: '',
-            autoApprove: false,
             activeTask: null,
             events: [],
-            pendingStep: null,
-            ws: null,
-            reconnectAttempts: 0,
-            maxReconnectAttempts: 5,
-            reconnectDelay: 1000
+            pollingInterval: null,
+            pollingFrequency: 3000,
+            isLoading: false,
+            errorMessage: null
         }
     },
     computed: {
-        connectionStatus() {
-            return this.connected ? 'Connected' : 'Disconnected'
-        },
-        connectionStatusClass() {
-            return this.connected ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-        },
         canStartTask() {
-            return this.connected && !this.activeTask && this.taskDescription.trim().length > 0
+            return !this.activeTask && this.taskDescription.trim().length > 0
         },
         canStopTask() {
-            return this.connected && this.activeTask
+            return this.activeTask && !['completed', 'failed', 'stopped'].includes(this.activeTask.status)
+        },
+        isTaskRunning() {
+            return this.activeTask && !['completed', 'failed', 'stopped'].includes(this.activeTask.status)
+        },
+        currentTaskStatusClass() {
+            if (!this.activeTask) return '';
+            const statusClasses = {
+                'created': 'bg-blue-100 text-blue-800',
+                'running': 'bg-yellow-100 text-yellow-800',
+                'completed': 'bg-green-100 text-green-800',
+                'failed': 'bg-red-100 text-red-800',
+                'stopped': 'bg-gray-100 text-gray-800'
+            };
+            return statusClasses[this.activeTask.status] || 'bg-gray-100 text-gray-800'
         }
     },
     methods: {
-        connectWebSocket() {
-            if (this.ws) {
-                this.ws.close()
-            }
+        async startTask() {
+            if (!this.canStartTask) return;
+            this.isLoading = true;
+            this.errorMessage = null;
+            this.events = [];
 
-            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-            this.ws = new WebSocket(`${protocol}//${window.location.host}/ws`)
+            try {
+                const response = await fetch('/api/tasks', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ 
+                        description: this.taskDescription 
+                    }),
+                });
 
-            this.ws.onopen = () => {
-                this.connected = true
-                this.reconnectAttempts = 0
-                console.log('WebSocket connected')
-            }
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+                }
 
-            this.ws.onclose = () => {
-                this.connected = false
-                console.log('WebSocket disconnected')
-                this.handleReconnect()
-            }
+                const taskInfo = await response.json();
+                this.activeTask = {
+                    id: taskInfo.task_id,
+                    description: taskInfo.description,
+                    status: taskInfo.status
+                };
+                this.taskDescription = '';
+                this.startPolling();
 
-            this.ws.onerror = (error) => {
-                console.error('WebSocket error:', error)
-                this.connected = false
-            }
-
-            this.ws.onmessage = (event) => {
-                const data = JSON.parse(event.data)
-                this.handleWebSocketMessage(data)
+            } catch (error) {
+                console.error('Error starting task:', error);
+                this.errorMessage = `Failed to start task: ${error.message}`;
+                this.activeTask = null;
+            } finally {
+                this.isLoading = false;
             }
         },
 
-        handleReconnect() {
-            if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-                console.log('Max reconnection attempts reached')
-                return
-            }
+        async stopTask() {
+            if (!this.canStopTask || !this.activeTask) return;
+            this.isLoading = true;
+            this.errorMessage = null;
 
-            setTimeout(() => {
-                this.reconnectAttempts++
-                console.log(`Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})`)
-                this.connectWebSocket()
-            }, this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1))
+            try {
+                const response = await fetch(`/api/tasks/${this.activeTask.id}/stop`, {
+                    method: 'POST',
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+                }
+
+                const taskInfo = await response.json();
+                if (this.activeTask) {
+                    this.activeTask.status = taskInfo.status; 
+                }
+                this.stopPolling();
+                
+            } catch (error) {
+                console.error('Error stopping task:', error);
+                this.errorMessage = `Failed to stop task: ${error.message}`;
+            } finally {
+                this.isLoading = false;
+            }
         },
 
-        handleWebSocketMessage(data) {
-            switch (data.type) {
-                case 'task_started':
-                    this.activeTask = {
-                        id: data.task_id,
-                        description: data.description,
-                        status: 'running'
+        async pollTaskStatus() {
+            if (!this.activeTask || !this.isTaskRunning) {
+                this.stopPolling();
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/tasks/${this.activeTask.id}`);
+                if (!response.ok) {
+                    if (response.status === 404) {
+                        console.warn(`Task ${this.activeTask.id} not found.`);
+                        this.errorMessage = `Task ${this.activeTask.id} not found on server.`;
+                        this.activeTask = null;
+                        this.stopPolling();
+                    } else {
+                         const errorData = await response.json();
+                         throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
                     }
-                    break
+                    return;
+                }
 
-                case 'task_completed':
-                    this.activeTask = null
-                    this.events = []
-                    break
+                const taskStatus = await response.json();
+                
+                this.activeTask.status = taskStatus.status;
+                
+                this.events = taskStatus.events.map((ev, index) => ({
+                    id: `${taskStatus.task_id}-${index}-${ev.type}`,
+                    type: ev.type || 'info',
+                    message: ev.message || JSON.stringify(ev),
+                    timestamp: new Date().toLocaleTimeString()
+                }));
 
-                case 'task_failed':
-                    this.activeTask.status = 'failed'
-                    break
+                 this.$nextTick(() => {
+                        const container = this.$refs.eventsContainer;
+                        if (container) {
+                             container.scrollTop = container.scrollHeight;
+                        }
+                 });
 
-                case 'step_approval_required':
-                    this.pendingStep = {
-                        id: data.step_id,
-                        description: data.description
-                    }
-                    break
-
-                case 'event':
-                    this.events.push({
-                        id: Date.now(),
-                        type: data.event_type,
-                        message: data.message,
-                        timestamp: new Date().toLocaleTimeString()
-                    })
-                    this.$nextTick(() => {
-                        const container = this.$refs.eventsContainer
-                        container.scrollTop = container.scrollHeight
-                    })
-                    break
+                if (!this.isTaskRunning) {
+                    this.stopPolling();
+                }
+                
+            } catch (error) {
+                console.error('Error polling task status:', error);
+                this.errorMessage = `Error fetching task status: ${error.message}`;
             }
         },
 
-        startTask() {
-            if (!this.canStartTask) return
-
-            this.ws.send(JSON.stringify({
-                type: 'start_task',
-                description: this.taskDescription,
-                auto_approve: this.autoApprove
-            }))
-
-            this.taskDescription = ''
+        startPolling() {
+            this.stopPolling();
+            this.errorMessage = null;
+            this.pollTaskStatus();
+            this.pollingInterval = setInterval(this.pollTaskStatus, this.pollingFrequency);
+            console.log(`Polling started for task ${this.activeTask?.id}`);
         },
 
-        stopTask() {
-            if (!this.canStopTask) return
-
-            this.ws.send(JSON.stringify({
-                type: 'stop_task',
-                task_id: this.activeTask.id
-            }))
-        },
-
-        approveStep() {
-            if (!this.pendingStep) return
-
-            this.ws.send(JSON.stringify({
-                type: 'approve_step',
-                step_id: this.pendingStep.id,
-                approved: true
-            }))
-
-            this.pendingStep = null
-        },
-
-        rejectStep() {
-            if (!this.pendingStep) return
-
-            this.ws.send(JSON.stringify({
-                type: 'approve_step',
-                step_id: this.pendingStep.id,
-                approved: false
-            }))
-
-            this.pendingStep = null
+        stopPolling() {
+            if (this.pollingInterval) {
+                clearInterval(this.pollingInterval);
+                this.pollingInterval = null;
+                console.log('Polling stopped');
+            }
         },
 
         getEventClass(type) {
-            return {
-                'info': 'event-info',
-                'success': 'event-success',
-                'warning': 'event-warning',
-                'error': 'event-error'
-            }[type] || 'event-info'
+            const typeLower = String(type).toLowerCase();
+            if (typeLower.includes('error') || typeLower.includes('fail')) return 'event-error';
+            if (typeLower.includes('complete') || typeLower.includes('success')) return 'event-success';
+            if (typeLower.includes('warn')) return 'event-warning';
+            return 'event-info';
         }
     },
     mounted() {
-        this.connectWebSocket()
-        window.addEventListener('beforeunload', () => {
-            if (this.ws) {
-                this.ws.close()
-            }
-        })
+    },
+    beforeUnmount() {
+        this.stopPolling();
     }
 })
 
