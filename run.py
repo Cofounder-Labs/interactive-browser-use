@@ -10,13 +10,12 @@ from pathlib import Path
 
 def check_env_vars():
     """Check if required environment variables are set."""
-    required_vars = ["OPENAI_API_KEY"]
-    missing_vars = [var for var in required_vars if not os.getenv(var)]
+    # Check for either OpenAI or Azure OpenAI credentials
+    has_openai = bool(os.getenv("OPENAI_API_KEY"))
+    has_azure = bool(os.getenv("AZURE_ENDPOINT") and os.getenv("AZURE_OPENAI_API_KEY"))
     
-    if missing_vars:
-        print("Error: The following environment variables are required but not set:")
-        for var in missing_vars:
-            print(f"  - {var}")
+    if not (has_openai or has_azure):
+        print("Error: Either OPENAI_API_KEY or (AZURE_ENDPOINT and AZURE_OPENAI_API_KEY) environment variables are required")
         print("\nPlease set these variables and try again.")
         sys.exit(1)
 

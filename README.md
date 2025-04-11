@@ -31,13 +31,24 @@ A web-based interface allowing users to direct, observe, and control an AI agent
    ```
    Then edit `.env` and add your API keys:
    ```
+   # OpenAI API Key (Required if not using Azure OpenAI)
    OPENAI_API_KEY=your_openai_api_key
-   ANTHROPIC_API_KEY=your_anthropic_api_key
-   AZURE_ENDPOINT=your_azure_endpoint
+   
+   # Azure OpenAI Configuration (Required if not using OpenAI directly)
+   AZURE_ENDPOINT=https://your-resource-name.openai.azure.com/
    AZURE_OPENAI_API_KEY=your_azure_api_key
+   
+   # Optional API Keys for other models
+   ANTHROPIC_API_KEY=your_anthropic_api_key
    GEMINI_API_KEY=your_gemini_api_key
    DEEPSEEK_API_KEY=your_deepseek_api_key
+   
+   # Application Configuration
+   CHROME_DEBUG_PORT=9222
+   APP_PORT=8000
    ```
+
+   Note: You need to provide either OpenAI API key or Azure OpenAI configuration, but not both.
 
 ## Running the Application
 
@@ -91,6 +102,17 @@ The project includes several development tools that can be run with Poetry:
 - `tests/`: Test files
 - `frontend/`: Frontend application code
 - `run.py`: Main entry point for running the application
+
+## Azure OpenAI Support
+
+This project supports both OpenAI's API directly and Azure OpenAI services. To use Azure OpenAI:
+
+1. Set up an Azure OpenAI resource in the Azure portal
+2. Configure the following environment variables:
+   - `AZURE_ENDPOINT`: The endpoint URL of your Azure OpenAI resource
+   - `AZURE_OPENAI_API_KEY`: The API key for your Azure OpenAI resource
+
+The application will automatically detect and use Azure OpenAI if these environment variables are set, otherwise it will fall back to using OpenAI's API directly.
 
 ## Contributors
 

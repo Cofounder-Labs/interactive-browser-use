@@ -4,7 +4,7 @@ Agent wrapper for browser-use library.
 
 from typing import Any, Callable, Dict, Optional
 from browser_use import Agent
-from langchain_openai import ChatOpenAI
+from langchain_openai import ChatOpenAI, AzureChatOpenAI
 from rich.console import Console
 from rich.logging import RichHandler
 import logging
@@ -58,15 +58,25 @@ class BrowserAgent:
         try:
             self.logger.debug(f"Starting task: {self.task}")
             
-            # Initialize the LLM (using OpenAI)
-            if not os.getenv("OPENAI_API_KEY"):
-                raise ValueError("OPENAI_API_KEY environment variable is required")
-            
-            llm = ChatOpenAI(
-                model="gpt-4",
-                temperature=0,
-                openai_api_key=os.getenv("OPENAI_API_KEY")
-            )
+            # Initialize the LLM (using OpenAI or Azure OpenAI)
+            if os.getenv("AZURE_ENDPOINT") and os.getenv("AZURE_OPENAI_API_KEY"):
+                self.logger.debug("Using Azure OpenAI")
+                llm = AzureChatOpenAI(
+                    azure_endpoint=os.getenv("AZURE_ENDPOINT"),
+                    api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+                    api_version="2024-02-15-preview",
+                    model="gpt-4",
+                    temperature=0
+                )
+            elif os.getenv("OPENAI_API_KEY"):
+                self.logger.debug("Using OpenAI")
+                llm = ChatOpenAI(
+                    model="gpt-4",
+                    temperature=0,
+                    openai_api_key=os.getenv("OPENAI_API_KEY")
+                )
+            else:
+                raise ValueError("Either OPENAI_API_KEY or (AZURE_ENDPOINT and AZURE_OPENAI_API_KEY) environment variables are required")
             
             # Launch Chrome with debugging if not already running
             if not launch_chrome_with_debugging():
