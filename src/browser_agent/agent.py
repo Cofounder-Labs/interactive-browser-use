@@ -10,7 +10,7 @@ from rich.logging import RichHandler
 import logging
 import os
 import asyncio
-from .utils.chrome import launch_chrome_with_debugging, get_browser_instance
+from .utils.chrome import get_browser_instance
 
 class BrowserAgent:
     """Wrapper class for browser-use functionality."""
@@ -78,13 +78,15 @@ class BrowserAgent:
             else:
                 raise ValueError("Either OPENAI_API_KEY or (AZURE_ENDPOINT and AZURE_OPENAI_API_KEY) environment variables are required")
             
-            # Launch Chrome with debugging if not already running
-            if not launch_chrome_with_debugging():
-                raise RuntimeError("Failed to launch Chrome with debugging enabled")
+            # NOTE: Removed redundant call to launch_chrome_with_debugging()
+            # The browser should already be launched by the app startup event.
+            # We just need to get the instance to connect to it.
             
-            # Get browser instance
+            # Get browser instance (connects to the one launched at startup)
             self.browser = get_browser_instance()
             if not self.browser:
+                # Log error more specifically
+                self.logger.error("Failed to get browser instance. Ensure Chrome/Chromium is running with remote debugging.")
                 raise RuntimeError("Failed to create browser instance")
             
             # Create a more specific task description

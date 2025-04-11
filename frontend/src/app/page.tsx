@@ -1,11 +1,17 @@
 'use client'; // Add this directive for client-side interactivity (useState)
 
 import { useState } from 'react';
-import Image from 'next/image'; // Import Image component if needed for logo
+
+// Define an interface for the task state
+interface Task {
+  id: string;
+  description: string;
+  status: string;
+}
 
 export default function Home() {
   // State to manage which view is active
-  const [activeTask, setActiveTask] = useState<any>(null); // Use a more specific type if available
+  const [activeTask, setActiveTask] = useState<Task | null>(null); // Use Task interface
   const [taskDescription, setTaskDescription] = useState('');
   const [isLoading, setIsLoading] = useState(false); // Add loading state
   const [error, setError] = useState<string | null>(null); // Add error state
@@ -19,7 +25,11 @@ export default function Home() {
     setError(null);
 
     try {
-      const response = await fetch('http://localhost:8000/api/tasks', { // Assuming backend runs on port 8000
+      // Use environment variable for API URL
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/tasks'; 
+      console.log(`Sending request to: ${apiUrl}`); // Add log for debugging
+
+      const response = await fetch(apiUrl, { 
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -33,7 +43,7 @@ export default function Home() {
         try {
           const errorData = await response.json();
           errorDetail = errorData.detail || errorDetail;
-        } catch (jsonError) {
+        } catch { // Removed unused variable declaration
           // Ignore if response is not JSON
         }
         throw new Error(errorDetail);
@@ -50,9 +60,13 @@ export default function Home() {
       // Optionally clear description
       // setTaskDescription(''); 
 
-    } catch (err: any) {
+    } catch (err: unknown) { // Use unknown for caught error
       console.error('Failed to create task:', err);
-      setError(err.message || 'Failed to start task. Please check backend connection.');
+      let errorMessage = 'Failed to start task. Please check backend connection.';
+      if (err instanceof Error) {
+        errorMessage = err.message; // Use error message if it's an Error instance
+      }
+      setError(errorMessage);
       setActiveTask(null); // Stay on the entry view if error occurs
     } finally {
       setIsLoading(false);

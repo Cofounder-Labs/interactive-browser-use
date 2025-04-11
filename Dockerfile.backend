@@ -1,0 +1,43 @@
+# Use an official Python runtime as a parent image
+ARG PYTHON_VERSION=3.11
+FROM python:${PYTHON_VERSION}-slim
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE 1
+ENV PYTHONUNBUFFERED 1
+ENV POETRY_VERSION=1.8.3 
+ENV POETRY_HOME=/opt/poetry
+ENV POETRY_VIRTUALENVS_CREATE=false 
+ENV PATH="$POETRY_HOME/bin:$PATH"
+# Add /app/src to PYTHONPATH so Python can find modules inside src
+ENV PYTHONPATH=/app/src
+
+# Install system dependencies required for Poetry and Chrome
+RUN apt-get update && apt-get install --no-install-recommends -y curl wget gnupg build-essential libglib2.0-0 libnss3 libgconf-2-4 libfontconfig1 && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Install Poetry
+RUN curl -sSL https://install.python-poetry.org | python -
+
+# Set the working directory in the container
+WORKDIR /app
+
+# Copy dependency definition files
+COPY poetry.lock pyproject.toml ./
+
+# Install project dependencies
+RUN poetry install --no-interaction --no-ansi --no-dev
+
+# Install Chromium (instead of Google Chrome)
+# Remove Google Chrome repo addition steps
+# Install chromium and clean up in one go
+RUN apt-get update && apt-get install --no-install-recommends -y chromium && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Copy the rest of the application code (specifically the src directory)
+COPY ./src ./src
+
+# Expose the port the app runs on
+EXPOSE 8000
+
+# Define the command to run the application
+# Use poetry run and run as a module (-m) for correct path resolution
+CMD ["poetry", "run", "python", "-m", "browser_agent.web.run"] 

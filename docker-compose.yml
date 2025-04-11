@@ -1,0 +1,41 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    ports:
+      - "8000:8000"
+      - "9222:9222" # Expose Chrome debug port if needed
+    env_file:
+      - .env
+    environment:
+      # Pass necessary env vars from .env or define here
+      - CHROME_DEBUG_PORT=9222
+      - APP_PORT=8000
+      # Example: - OPENAI_API_KEY=${OPENAI_API_KEY}
+    # Add capabilities required by Chrome sandbox in some environments
+    #cap_add:
+    #  - SYS_ADMIN
+    # If Chrome still has issues, try running without sandbox (less secure)
+    # command: [\"python\", \"src/browser_agent/web/run.py\", \"--no-sandbox\"] # Example, adjust run.py if needed
+    volumes:
+      - ./src:/app/src # Mount src for development hot-reloading (optional)
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      # Pass the API URL during build time
+      args:
+        NEXT_PUBLIC_API_URL: http://backend:8000/api/tasks # Use service name 'backend'
+    ports:
+      - "3000:3000"
+    environment:
+      # Pass the API URL at runtime as well (Next.js 13+ might need this)
+      NEXT_PUBLIC_API_URL: http://backend:8000/api/tasks
+    depends_on:
+      - backend
+    # volumes:
+      # - ./frontend:/app/frontend # Mount frontend code for dev hot-reloading (optional)
+      # - /app/frontend/node_modules # Prevent host node_modules from overriding container
+      # - /app/frontend/.next # Prevent host .next from overriding container 
