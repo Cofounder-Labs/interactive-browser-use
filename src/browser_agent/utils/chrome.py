@@ -82,20 +82,23 @@ def launch_chrome_with_debugging(port: int = 9222, app_port: int = 8000) -> bool
 def get_browser_instance(port: int = 9222) -> Optional[Browser]:
     """Get a browser instance connected to the debug Chrome/Chromium instance"""
     chrome_path = _get_chrome_path()
+    extra_args = []
+    # Add no_sandbox if on Linux (common in Docker)
+    if platform.system() == "Linux":
+        extra_args.append("--no-sandbox")
+
     try:
         browser_config = BrowserConfig(
-            chrome_instance_path=chrome_path, # Use dynamic path
-            headless=False, # Keep this False for now, agent controls it?
-            disable_security=True,
-            cdp_url=f"http://127.0.0.1:{port}" # Explicitly use IPv4 loopback
+            # browser_instance_path is deprecated alias, use browser_binary_path
+            browser_binary_path=chrome_path, # Use dynamic path 
+            headless=False, # Agent controls headless mode via CDP
+            disable_security=True, # Often needed for cross-origin interactions
+            cdp_url=f"http://127.0.0.1:{port}", # Explicitly use IPv4 loopback
+            extra_browser_args=extra_args
         )
         
-        # Add no_sandbox if on Linux
-        if platform.system() == "Linux":
-             browser_config.chrome_options = ["--no-sandbox"] # Add necessary flag
-
         browser = Browser(browser_config)
-        browser.page = None
+        browser.page = None # Initialize page attribute
         return browser
     except Exception as e:
         print(f"Error creating browser instance: {e}")
