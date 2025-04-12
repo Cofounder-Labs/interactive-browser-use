@@ -11,23 +11,18 @@ XVFBPID=$!
 # Set the DISPLAY environment variable for subsequent GUI applications
 export DISPLAY=:99
 
-# Start a lightweight window manager (optional, but helps manage windows for VNC)
-fluxbox &> /dev/null &
-FLUXBOXPID=$!
-
 # Start x11vnc
 # -display :99: Connect to the display served by Xvfb
 # -nopw: Do not require a password (simpler for this setup)
 # -forever: Keep running even after the first client disconnects
 # -shared: Allow multiple clients to connect simultaneously
 # -rfbport 5900: Listen on port 5900
-# -localhost: Only listen on localhost within the container initially (docker-compose exposes it)
 # -xkb: Use X keyboard extension
 # -noxrecord: Disable X Record extension (potential compatibility fix)
-x11vnc -display :99 -nopw -forever -shared -rfbport 5900 -localhost -xkb -noxrecord &> /dev/null &
+x11vnc -display :99 -nopw -forever -shared -rfbport 5900 -xkb -noxrecord &
 X11VNCPID=$!
 
-echo "Starting Xvfb (PID: $XVFBPID), Fluxbox (PID: $FLUXBOXPID), x11vnc (PID: $X11VNCPID)"
+echo "Starting Xvfb (PID: $XVFBPID), x11vnc (PID: $X11VNCPID)"
 echo "VNC server running on port 5900 (exposed by docker-compose)"
 echo "Executing command: $@"
 
@@ -35,4 +30,4 @@ echo "Executing command: $@"
 exec "$@"
 
 # Optional: Cleanup on exit (might not always run depending on how container stops)
-trap "kill $X11VNCPID $FLUXBOXPID $XVFBPID" EXIT 
+trap "kill $X11VNCPID $XVFBPID" EXIT 
