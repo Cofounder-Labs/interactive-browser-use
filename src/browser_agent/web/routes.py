@@ -32,6 +32,10 @@ class TaskInfo(BaseModel):
     status: str
     message: Optional[str] = None
 
+# NEW Endpoint: Get just the status of a task
+class TaskStatusOnlyResponse(BaseModel):
+    status: str
+
 # Store active tasks and their states
 # Structure: {task_id: {"agent": BrowserAgent, "description": str, "status": str, "events": []}}
 active_tasks: Dict[str, Dict[str, Any]] = {}
@@ -137,6 +141,14 @@ async def get_task_status(task_id: str):
         status=task_state["status"],
         events=task_state["events"],
     )
+
+@api_router.get("/tasks/{task_id}/status", response_model=TaskStatusOnlyResponse)
+async def get_task_status_only(task_id: str):
+    """Retrieves just the current status string for a task."""
+    if task_id not in active_tasks:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    return TaskStatusOnlyResponse(status=active_tasks[task_id]["status"])
 
 @api_router.post("/tasks/{task_id}/stop", response_model=TaskInfo)
 async def stop_task(task_id: str):

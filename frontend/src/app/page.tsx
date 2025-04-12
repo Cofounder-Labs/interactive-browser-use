@@ -1,6 +1,6 @@
 'use client'; // Add this directive for client-side interactivity (useState)
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic'; // Import dynamic
 
 // Dynamically import VncScreen only on the client side
@@ -26,6 +26,69 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false); // Add loading state
   const [error, setError] = useState<string | null>(null); // Add error state
   const [showVnc, setShowVnc] = useState(true); // State to control VNC visibility, default to true when task is active
+
+  // --- Status Polling Logic --- 
+  useEffect(() => {
+    let intervalId: NodeJS.Timeout | null = null;
+
+    const fetchStatus = async () => {
+      if (!activeTask) return;
+
+      try {
+        // Assume endpoint exists: /api/tasks/{taskId}/status
+        const statusApiUrl = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/tasks'}/${activeTask.id}/status`;
+        const response = await fetch(statusApiUrl);
+
+        if (!response.ok) {
+          // Handle errors potentially, maybe set an error state or stop polling
+          console.error(`Failed to fetch status: ${response.status}`);
+          // Optionally stop polling on error:
+          // if (intervalId) clearInterval(intervalId);
+          return; 
+        }
+
+        const data = await response.json();
+        const newStatus = data.status; // Assuming the backend returns { status: "..." }
+
+        setActiveTask(prevTask => {
+          if (prevTask && prevTask.id === activeTask.id && prevTask.status !== newStatus) {
+            return { ...prevTask, status: newStatus };
+          }
+          return prevTask;
+        });
+
+        // Stop polling if task is complete or failed
+        const lowerCaseStatus = newStatus.toLowerCase();
+        if (lowerCaseStatus === 'complete' || lowerCaseStatus === 'completed' || lowerCaseStatus === 'failed' || lowerCaseStatus === 'error') {
+          if (intervalId) {
+            clearInterval(intervalId);
+            intervalId = null; // Clear the reference
+            console.log('Polling stopped due to final status:', newStatus);
+          }
+        }
+
+      } catch (err) {
+        console.error('Error fetching task status:', err);
+        // Optionally stop polling on fetch error:
+        // if (intervalId) clearInterval(intervalId);
+      }
+    };
+
+    if (activeTask) {
+      // Fetch status immediately and then start polling
+      fetchStatus(); 
+      intervalId = setInterval(fetchStatus, 3000); // Poll every 3 seconds
+      console.log('Started polling for task status:', activeTask.id);
+    }
+
+    // Cleanup function: clear interval when component unmounts or activeTask changes
+    return () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+        console.log('Polling stopped.');
+      }
+    };
+  }, [activeTask]); // Re-run effect if activeTask changes
 
   // Function to handle task creation via API
   const handleCreateTask = async (event: React.FormEvent) => {
@@ -88,6 +151,42 @@ export default function Home() {
     setShowVnc(!showVnc);
   };
 
+  // Helper function to determine status badge styling
+  const getStatusBadgeClass = (status: string) => {
+    status = status.toLowerCase();
+    if (status === 'complete' || status === 'completed') {
+      return 'bg-green-100 text-green-800';
+    } else if (status === 'failed' || status === 'error') {
+      return 'bg-red-100 text-red-800';
+    } else if (status === 'in-progress' || status === 'running' || status === 'active') {
+      return 'bg-yellow-100 text-yellow-800';
+    } else if (status === 'stopped') {
+      return 'bg-gray-100 text-gray-800'; // Style for stopped
+    } else {
+      return 'bg-blue-100 text-blue-800'; // Default (e.g., created, pending)
+    }
+  };
+
+  // Helper function to check for terminal statuses
+  const isTerminalStatus = (status: string): boolean => {
+    const lowerCaseStatus = status.toLowerCase();
+    return [
+      'complete',
+      'completed',
+      'failed',
+      'error',
+      'stopped'
+    ].includes(lowerCaseStatus);
+  };
+
+  // Function to reset to the initial task entry view
+  const handleStartNewTask = () => {
+    setActiveTask(null);
+    setTaskDescription(''); // Optionally clear previous description
+    setError(null); // Clear any previous errors
+    setShowVnc(false); // Hide VNC when returning to start
+  };
+
   return (
     <main className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 to-indigo-100 p-4">
       <div className={`transition-all duration-300 ease-in-out w-full ${activeTask ? 'max-w-6xl' : 'max-w-xl'}`}> {/* Dynamic width */}
@@ -132,11 +231,11 @@ export default function Home() {
                 <span className="text-gray-700 truncate flex-shrink" title={activeTask.description}>{activeTask.description}</span>
               </div>
               <div className="flex items-center space-x-4 flex-shrink-0">
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                  Status: Ready {/* Placeholder */}
+                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusBadgeClass(activeTask.status)}`}>
+                  Status: {activeTask.status}
                 </span>
                  <span className="text-sm text-gray-500 hidden sm:inline">|</span>
-                 <span className="text-sm text-gray-500 hidden sm:inline">Step 1/5</span> {/* Placeholder */}
+                 <span className="text-sm text-gray-500 hidden sm:inline">Step 1/5</span> {/* Placeholder - Consider updating this too if backend provides step info */}
                 {/* VNC Toggle Button */}
                 <button
                     onClick={toggleVnc}
@@ -168,23 +267,38 @@ export default function Home() {
                )}
              </div>
 
-            {/* Action Bar */}
-            <div className="bg-white rounded-lg shadow-lg p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-              <div className="flex-grow">
-                <span className="font-semibold text-gray-800 mr-2">Next Action:</span>
-                 <span className="text-gray-700">Navigating to Stripe login page...</span> {/* Placeholder */}
-              </div>
-              <div className="flex space-x-2 flex-wrap gap-2 md:gap-0 md:flex-nowrap">
-                <button className="bg-green-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-green-700 flex items-center focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition duration-150 ease-in-out">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                  </svg>
-                  Approve
-                </button>
-                <button className="bg-gray-200 text-gray-700 px-4 py-2 rounded-md text-sm font-medium hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 transition duration-150 ease-in-out">Plan</button>
-                <button className="bg-gray-200 text-gray-700 px-4 py-2 rounded-md text-sm font-medium hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 transition duration-150 ease-in-out">Edit</button>
-                <button className="bg-red-500 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition duration-150 ease-in-out">Cancel Goal</button>
-              </div>
+            {/* Action Bar - Conditionally Rendered */}
+            <div className="bg-white rounded-lg shadow-lg p-4 flex flex-col md:flex-row items-center justify-between gap-4">
+              {activeTask && isTerminalStatus(activeTask.status) ? (
+                // Terminal State: Show 'Start New Task' button
+                <div className="w-full flex justify-center">
+                    <button 
+                      onClick={handleStartNewTask}
+                      className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 text-base font-medium transition duration-200 ease-in-out"
+                    >
+                      Start New Task
+                    </button>
+                </div>
+              ) : (
+                // Active/Ongoing State: Show standard action buttons
+                <>
+                  <div className="flex-grow">
+                    <span className="font-semibold text-gray-800 mr-2">Next Action:</span>
+                    <span className="text-gray-700">Navigating to Stripe login page...</span> {/* Placeholder */}
+                  </div>
+                  <div className="flex space-x-2 flex-wrap gap-2 md:gap-0 md:flex-nowrap">
+                    <button className="bg-green-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-green-700 flex items-center focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition duration-150 ease-in-out">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                      Approve
+                    </button>
+                    <button className="bg-gray-200 text-gray-700 px-4 py-2 rounded-md text-sm font-medium hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 transition duration-150 ease-in-out">Plan</button>
+                    <button className="bg-gray-200 text-gray-700 px-4 py-2 rounded-md text-sm font-medium hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 transition duration-150 ease-in-out">Edit</button>
+                    <button className="bg-red-500 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition duration-150 ease-in-out">Cancel Goal</button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}
