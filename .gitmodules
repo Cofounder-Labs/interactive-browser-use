@@ -1,0 +1,3 @@
+[submodule "src/browser-use"]
+	path = src/browser-use
+	url = https://github.com/browser-use/browser-use

@@ -1,14 +1,19 @@
 # Stage 1: Build the Next.js application
 FROM node:20-alpine AS builder
 
+# Install pnpm
+RUN npm install -g pnpm
+
 # Set working directory
 WORKDIR /app/frontend
 
-# Copy package.json and package-lock.json (or yarn.lock)
-COPY frontend/package*.json ./
+# Copy package.json and pnpm-lock.yaml
+COPY frontend/package.json frontend/pnpm-lock.yaml ./
+# Ensure correct file names if using package-lock.json or yarn.lock with pnpm import
+# COPY frontend/package*.json ./
 
-# Install dependencies
-RUN npm install
+# Install dependencies using pnpm
+RUN pnpm install
 
 # Copy the rest of the frontend application code
 COPY frontend/ .
@@ -17,22 +22,27 @@ COPY frontend/ .
 # ARG NEXT_PUBLIC_API_URL
 # ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 
-# Build the Next.js application
-RUN npm run build
+# Build the Next.js application using pnpm
+RUN pnpm run build
 
 # Stage 2: Production image
 FROM node:20-alpine
 
+# Install pnpm globally in the final stage as well
+RUN npm install -g pnpm
+
 WORKDIR /app/frontend
 
-# Copy built files from the builder stage
+# Copy necessary files from the builder stage
 COPY --from=builder /app/frontend/.next ./.next
 COPY --from=builder /app/frontend/public ./public
 COPY --from=builder /app/frontend/package.json .
+COPY --from=builder /app/frontend/pnpm-lock.yaml .
+# Copy node_modules (pnpm structure might differ, consider if needed)
 COPY --from=builder /app/frontend/node_modules ./node_modules 
 
 # Expose the port Next.js runs on
 EXPOSE 3000
 
-# Command to run the application
-CMD ["npm", "start"] 
+# Command to run the application using pnpm
+CMD ["pnpm", "start"] 
