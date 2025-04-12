@@ -1,6 +1,16 @@
 'use client'; // Add this directive for client-side interactivity (useState)
 
-import { useState } from 'react';
+import React, { useState } from 'react';
+import dynamic from 'next/dynamic'; // Import dynamic
+
+// Dynamically import VncScreen only on the client side
+const VncScreen = dynamic(
+  () => import('react-vnc').then(mod => mod.VncScreen), // Adjust if VncScreen is default export
+  {
+    ssr: false, // Disable server-side rendering for this component
+    loading: () => <p className="text-white p-4">Loading VNC Viewer...</p> // Optional loading indicator
+  }
+);
 
 // Define an interface for the task state
 interface Task {
@@ -15,6 +25,7 @@ export default function Home() {
   const [taskDescription, setTaskDescription] = useState('');
   const [isLoading, setIsLoading] = useState(false); // Add loading state
   const [error, setError] = useState<string | null>(null); // Add error state
+  const [showVnc, setShowVnc] = useState(false); // State to control VNC visibility
 
   // Function to handle task creation via API
   const handleCreateTask = async (event: React.FormEvent) => {
@@ -57,8 +68,7 @@ export default function Home() {
         description: createdTask.description,
         status: createdTask.status, // Use status from backend
       });
-      // Optionally clear description
-      // setTaskDescription(''); 
+      setShowVnc(true); // Show VNC viewer when task is active
 
     } catch (err: unknown) { // Use unknown for caught error
       console.error('Failed to create task:', err);
@@ -68,6 +78,7 @@ export default function Home() {
       }
       setError(errorMessage);
       setActiveTask(null); // Stay on the entry view if error occurs
+      setShowVnc(false); // Hide VNC on error
     } finally {
       setIsLoading(false);
     }
@@ -75,7 +86,7 @@ export default function Home() {
 
   return (
     <main className="min-h-screen flex items-center justify-center bg-purple-50 p-4"> {/* Added padding */}
-      <div className="w-full max-w-lg">
+      <div className={`w-full ${activeTask ? 'max-w-5xl' : 'max-w-lg'}`}> {/* Wider layout for VNC */}
         {!activeTask ? (
           // Initial Task Entry View
           <div className="bg-white rounded-lg shadow-lg p-8">
@@ -110,8 +121,8 @@ export default function Home() {
             </form>
           </div>
         ) : (
-          // Task Status View
-          <div className="space-y-6 w-full max-w-3xl"> {/* Increased max-width for this view */} 
+          // Task Status View with VNC
+          <div className="space-y-6">
             {/* Top Status Bar */}
             <div className="bg-white rounded-lg shadow-md p-4 flex justify-between items-center">
               <div className="flex items-center">
@@ -129,29 +140,26 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Browser Window Mockup */}
-            <div className="bg-white rounded-lg shadow-md overflow-hidden"> {/* Added overflow-hidden */}
-              {/* Browser Tab Bar */}
-              <div className="flex items-center px-4 py-2 border-b border-gray-200 bg-gray-50"> {/* Light bg for tab bar */}
-                <div className="flex space-x-1.5 mr-4">
-                  <span className="block h-3 w-3 bg-red-400 rounded-full"></span>
-                  <span className="block h-3 w-3 bg-yellow-400 rounded-full"></span>
-                  <span className="block h-3 w-3 bg-green-400 rounded-full"></span>
-                </div>
-                <div className="flex-grow bg-gray-200 rounded-md px-4 py-1 text-sm text-gray-600 text-center"> {/* Adjusted tab style */}
-                  New Tab
-                </div>
-              </div>
-              {/* Browser Content Area */}
-              <div className="h-96 flex items-center justify-center text-center text-gray-400 p-8 bg-white"> {/* Ensure white bg */}
-                <div>
-                   <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 mx-auto mb-4 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1">
-                     <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
-                   </svg>
-                   Waiting for action approval...
-                 </div>
-              </div>
-            </div>
+            {/* Browser View Area (placeholder or VNC) */}
+            <div className="bg-gray-700 rounded-lg shadow-md overflow-hidden h-[600px] w-full flex items-center justify-center relative">
+               {/* Conditionally render VNC based on showVnc */}
+               {showVnc && (
+                 <VncScreen
+                   url={'ws://localhost:5901'} // VNC WebSocket URL (ensure docker-compose exposes 5900)
+                   scaleViewport
+                   background="#000000"
+                   style={{
+                     width: '100%',
+                     height: '100%',
+                   }}
+                   // Optional props: 
+                   // debug={true}
+                   // onConnect={() => console.log('VNC Connected')}
+                   // onDisconnect={() => console.log('VNC Disconnected')}
+                   // onError={(err) => console.error('VNC Error:', err)}
+                 />
+               )}
+             </div>
 
             {/* Action Bar */}
             <div className="bg-white rounded-lg shadow-md p-4 flex items-center justify-between">

@@ -6,6 +6,7 @@ services:
     ports:
       - "8000:8000"
       - "9222:9222" # Expose Chrome debug port if needed
+      - "5901:5900" # Expose VNC port
     env_file:
       - .env
     environment:

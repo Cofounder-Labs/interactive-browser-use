@@ -56,8 +56,7 @@ def launch_chrome_with_debugging(port: int = 9222, app_port: int = 8000) -> bool
     if platform.system() == "Linux":
         launch_cmd.extend([
             '--no-sandbox', # Often needed in Docker
-            '--headless', # Usually run headless in Docker
-            '--disable-gpu', # Often needed for headless
+            '--disable-gpu', # Still often needed
             '--disable-dev-shm-usage' # Overcomes limited resource problems
         ])
     else: # macOS specific - open the app URL
@@ -88,7 +87,7 @@ def get_browser_instance(port: int = 9222) -> Optional[Browser]:
             chrome_instance_path=chrome_path, # Use dynamic path
             headless=False, # Keep this False for now, agent controls it?
             disable_security=True,
-            cdp_url=f"http://localhost:{port}"
+            cdp_url=f"http://127.0.0.1:{port}" # Explicitly use IPv4 loopback
         )
         
         # Add no_sandbox if on Linux
