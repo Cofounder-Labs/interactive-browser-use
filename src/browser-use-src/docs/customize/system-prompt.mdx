@@ -1,0 +1,66 @@
+---
+title: "System Prompt"
+description: "Customize the system prompt to control agent behavior and capabilities"
+icon: "message"
+---
+
+## Overview
+
+You can customize the system prompt in two ways:
+
+1. Extend the default system prompt with additional instructions
+2. Override the default system prompt entirely
+
+<Note>
+  Custom system prompts allow you to modify the agent's behavior at a
+  fundamental level. Use this feature carefully as it can significantly impact
+  the agent's performance and reliability.
+</Note>
+
+### Extend System Prompt (recommended)
+
+To add additional instructions to the default system prompt:
+
+```python
+from browser_use import Agent
+from langchain_openai import ChatOpenAI
+
+# Add your custom instructions
+extend_system_message = """
+REMEMBER the most important RULE:
+ALWAYS open first a new tab and go first to url wikipedia.com no matter the task!!!
+"""
+
+# Create agent with extended system prompt
+agent = Agent(
+    task="Your task here",
+    llm=ChatOpenAI(model='gpt-4'),
+    extend_system_message=extend_system_message
+)
+```
+
+### Override System Prompt
+
+<Warning>
+  Not recommended! If you must override the [default system
+  prompt](https://github.com/browser-use/browser-use/blob/main/browser_use/agent/system_prompt.md),
+  make sure to test the agent yourself.
+</Warning>
+
+Anyway, to override the default system prompt:
+
+```python
+# Define your complete custom prompt
+override_system_message = """
+You are an AI agent that helps users with web browsing tasks.
+
+[Your complete custom instructions here...]
+"""
+
+# Create agent with custom system prompt
+agent = Agent(
+    task="Your task here",
+    llm=ChatOpenAI(model='gpt-4'),
+    override_system_message=override_system_message
+)
+```
