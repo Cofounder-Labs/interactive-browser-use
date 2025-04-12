@@ -8,7 +8,7 @@ const VncScreen = dynamic(
   () => import('react-vnc').then(mod => mod.VncScreen), // Adjust if VncScreen is default export
   {
     ssr: false, // Disable server-side rendering for this component
-    loading: () => <p className="text-white p-4">Loading VNC Viewer...</p> // Optional loading indicator
+    loading: () => <p className="text-white p-4 text-center">Loading VNC Viewer...</p> // Optional loading indicator
   }
 );
 
@@ -25,7 +25,7 @@ export default function Home() {
   const [taskDescription, setTaskDescription] = useState('');
   const [isLoading, setIsLoading] = useState(false); // Add loading state
   const [error, setError] = useState<string | null>(null); // Add error state
-  const [showVnc, setShowVnc] = useState(false); // State to control VNC visibility
+  const [showVnc, setShowVnc] = useState(true); // State to control VNC visibility, default to true when task is active
 
   // Function to handle task creation via API
   const handleCreateTask = async (event: React.FormEvent) => {
@@ -37,10 +37,10 @@ export default function Home() {
 
     try {
       // Use environment variable for API URL
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/tasks'; 
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/tasks';
       console.log(`Sending request to: ${apiUrl}`); // Add log for debugging
 
-      const response = await fetch(apiUrl, { 
+      const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -54,7 +54,7 @@ export default function Home() {
         try {
           const errorData = await response.json();
           errorDetail = errorData.detail || errorDetail;
-        } catch { // Removed unused variable declaration
+        } catch {
           // Ignore if response is not JSON
         }
         throw new Error(errorDetail);
@@ -68,9 +68,9 @@ export default function Home() {
         description: createdTask.description,
         status: createdTask.status, // Use status from backend
       });
-      setShowVnc(true); // Show VNC viewer when task is active
+      setShowVnc(true); // Ensure VNC is shown initially when task is active
 
-    } catch (err: unknown) { // Use unknown for caught error
+    } catch (err: unknown) {
       console.error('Failed to create task:', err);
       let errorMessage = 'Failed to start task. Please check backend connection.';
       if (err instanceof Error) {
@@ -84,75 +84,82 @@ export default function Home() {
     }
   };
 
+  const toggleVnc = () => {
+    setShowVnc(!showVnc);
+  };
+
   return (
-    <main className="min-h-screen flex items-center justify-center bg-purple-50 p-4"> {/* Added padding */}
-      <div className={`w-full ${activeTask ? 'max-w-5xl' : 'max-w-lg'}`}> {/* Wider layout for VNC */}
+    <main className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 to-indigo-100 p-4">
+      <div className={`transition-all duration-300 ease-in-out w-full ${activeTask ? 'max-w-6xl' : 'max-w-xl'}`}> {/* Dynamic width */}
         {!activeTask ? (
           // Initial Task Entry View
-          <div className="bg-white rounded-lg shadow-lg p-8">
+          <div className="bg-white rounded-xl shadow-xl p-8 md:p-10">
             <div className="flex items-center justify-center mb-8">
-              {/* Replace with your actual SVG or Image component */}
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" className="h-6 w-6 mr-2" fill="#a855f7">
-                 <path d="M50 10 C 77.61 10 100 32.39 100 60 C 100 87.61 77.61 110 50 110 C 22.39 110 0 87.61 0 60 C 0 32.39 22.39 10 50 10 Z M 50 20 C 33.43 20 20 33.43 20 50 C 20 66.57 33.43 80 50 80 C 66.57 80 80 66.57 80 50 C 80 33.43 66.57 20 50 20 Z M 50 30 C 61.05 30 70 38.95 70 50 C 70 61.05 61.05 70 50 70 C 38.95 70 30 61.05 30 50 C 30 38.95 38.95 30 50 30 Z" />
-              </svg>
-              <h1 className="text-xl font-semibold text-gray-700">Interactive Browser-Use</h1>
+              {/* Replace with your actual SVG or Image component - simplified */}
+              <svg className="h-8 w-8 text-purple-600 mr-3" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.707l-3-3a1 1 0 00-1.414 0l-3 3a1 1 0 001.414 1.414L9 9.414V13a1 1 0 102 0V9.414l1.293 1.293a1 1 0 001.414-1.414z" clipRule="evenodd"></path></svg>
+              <h1 className="text-2xl font-bold text-gray-800">Interactive Browser Session</h1>
             </div>
-            <h2 className="text-lg font-medium text-gray-600 mb-4 text-left">What would you like to do today?</h2>
+            <h2 className="text-lg font-semibold text-gray-700 mb-5 text-center">What task should be performed?</h2>
             <form onSubmit={handleCreateTask}>
-              <input
-                type="text"
+              <textarea
                 value={taskDescription}
                 onChange={(e) => setTaskDescription(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500 focus:border-purple-500 mb-5 text-sm text-gray-500"
-                placeholder="e.g., 'Find and download my latest invoice from Stripe'"
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 mb-5 text-base text-gray-700 resize-none shadow-sm" // Use textarea for potentially longer inputs
+                placeholder="Describe the goal, e.g., 'Log into my bank account and download the statement for last month'"
+                rows={3} // Adjust rows as needed
                 required
-                disabled={isLoading} // Disable input while loading
+                disabled={isLoading}
               />
               {error && (
-                <p className="text-red-500 text-sm mb-4">Error: {error}</p> // Display error message
+                <p className="text-red-600 text-sm mb-4 p-3 bg-red-50 rounded-md"><strong>Error:</strong> {error}</p> // Enhanced error display
               )}
               <button
                 type="submit"
-                className={`w-auto bg-purple-500 text-white px-6 py-2 rounded-md hover:bg-purple-600 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 text-sm font-medium ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
-                disabled={isLoading} // Disable button while loading
+                className={`w-full bg-purple-600 text-white px-6 py-3 rounded-lg hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 text-lg font-semibold transition duration-200 ease-in-out ${isLoading ? 'opacity-60 cursor-not-allowed' : ''}`}
+                disabled={isLoading}
               >
-                {isLoading ? 'Starting...' : 'Start'} {/* Show loading text */}
+                {isLoading ? 'Starting Session...' : 'Start Session'}
               </button>
             </form>
           </div>
         ) : (
           // Task Status View with VNC
-          <div className="space-y-6">
+          <div className="space-y-5">
             {/* Top Status Bar */}
-            <div className="bg-white rounded-lg shadow-md p-4 flex justify-between items-center">
-              <div className="flex items-center">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" className="h-6 w-6 mr-2" fill="#a855f7">
-                   <path d="M50 10 C 77.61 10 100 32.39 100 60 C 100 87.61 77.61 110 50 110 C 22.39 110 0 87.61 0 60 C 0 32.39 22.39 10 50 10 Z M 50 20 C 33.43 20 20 33.43 20 50 C 20 66.57 33.43 80 50 80 C 66.57 80 80 66.57 80 50 C 80 33.43 66.57 20 50 20 Z M 50 30 C 61.05 30 70 38.95 70 50 C 70 61.05 61.05 70 50 70 C 38.95 70 30 61.05 30 50 C 30 38.95 38.95 30 50 30 Z" />
-                 </svg>
-                <span className="font-medium text-gray-700">Goal:</span>
-                <span className="ml-2 text-gray-600 truncate">{activeTask.description}</span>
+            <div className="bg-white rounded-lg shadow-lg p-4 flex flex-wrap justify-between items-center gap-4">
+              <div className="flex items-center flex-grow min-w-0">
+                <span className="font-semibold text-gray-800 mr-2">Goal:</span>
+                <span className="text-gray-700 truncate flex-shrink" title={activeTask.description}>{activeTask.description}</span>
               </div>
-              <div className="flex items-center space-x-4">
-                <span className="text-sm text-gray-500">Status: Ready to Act</span> {/* Placeholder */}
-                <span className="text-sm text-gray-500">|</span>
-                <span className="text-sm text-gray-500">Progress: Step 1/2</span> {/* Placeholder */}
-                <button className="text-gray-400 hover:text-gray-600 text-xl">⌄</button>
+              <div className="flex items-center space-x-4 flex-shrink-0">
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                  Status: Ready {/* Placeholder */}
+                </span>
+                 <span className="text-sm text-gray-500 hidden sm:inline">|</span>
+                 <span className="text-sm text-gray-500 hidden sm:inline">Step 1/5</span> {/* Placeholder */}
+                {/* VNC Toggle Button */}
+                <button
+                    onClick={toggleVnc}
+                    className="bg-gray-200 text-gray-700 px-3 py-1 rounded-md text-xs font-medium hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2"
+                  >
+                    {showVnc ? 'Hide Browser' : 'Show Browser'}
+                </button>
               </div>
             </div>
 
-            {/* Browser View Area (placeholder or VNC) */}
-            <div className="bg-gray-700 rounded-lg shadow-md overflow-hidden h-[600px] w-full flex items-center justify-center relative">
-               {/* Conditionally render VNC based on showVnc */}
+            {/* Browser View Area (Conditional VNC) */}
+            <div className={`bg-gray-800 rounded-lg shadow-lg overflow-hidden transition-all duration-500 ease-in-out ${showVnc ? 'h-[600px] opacity-100' : 'h-0 opacity-0'} w-full flex items-center justify-center relative`}>
+               {/* VNC Screen is rendered conditionally based on visibility and existence */}
                {showVnc && (
                  <VncScreen
-                   url={'ws://localhost:5901'} // VNC WebSocket URL (ensure docker-compose exposes 5900)
+                   url={'ws://localhost:5901'} // VNC WebSocket URL
                    scaleViewport
-                   background="#000000"
+                   background="#1f2937" // Darker background matching the container
                    style={{
                      width: '100%',
                      height: '100%',
                    }}
-                   // Optional props: 
+                   // Optional props:
                    // debug={true}
                    // onConnect={() => console.log('VNC Connected')}
                    // onDisconnect={() => console.log('VNC Disconnected')}
@@ -162,21 +169,21 @@ export default function Home() {
              </div>
 
             {/* Action Bar */}
-            <div className="bg-white rounded-lg shadow-md p-4 flex items-center justify-between">
-              <div>
-                <span className="font-semibold text-gray-700">Next Action:</span>
-                 <span className="ml-2 text-gray-600">Unable to generate a plan for this goal. Starting by visiting the Stripe website</span> {/* Placeholder */}
+            <div className="bg-white rounded-lg shadow-lg p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+              <div className="flex-grow">
+                <span className="font-semibold text-gray-800 mr-2">Next Action:</span>
+                 <span className="text-gray-700">Navigating to Stripe login page...</span> {/* Placeholder */}
               </div>
-              <div className="flex space-x-3">
-                <button className="bg-purple-600 text-white px-4 py-1.5 rounded-md text-sm hover:bg-purple-700 flex items-center focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <div className="flex space-x-2 flex-wrap gap-2 md:gap-0 md:flex-nowrap">
+                <button className="bg-green-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-green-700 flex items-center focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition duration-150 ease-in-out">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                   </svg>
                   Approve
                 </button>
-                <button className="bg-gray-200 text-gray-700 px-4 py-1.5 rounded-md text-sm hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2">Back to Plan</button>
-                <button className="bg-gray-200 text-gray-700 px-4 py-1.5 rounded-md text-sm hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2">Edit Action</button>
-                <button className="bg-gray-200 text-gray-700 px-4 py-1.5 rounded-md text-sm hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2">Change Goal</button>
+                <button className="bg-gray-200 text-gray-700 px-4 py-2 rounded-md text-sm font-medium hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 transition duration-150 ease-in-out">Plan</button>
+                <button className="bg-gray-200 text-gray-700 px-4 py-2 rounded-md text-sm font-medium hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 transition duration-150 ease-in-out">Edit</button>
+                <button className="bg-red-500 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition duration-150 ease-in-out">Cancel Goal</button>
               </div>
             </div>
           </div>
