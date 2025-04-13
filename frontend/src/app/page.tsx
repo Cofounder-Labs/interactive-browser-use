@@ -123,103 +123,108 @@ export default function Home() {
     };
   }, [activeTask]); // Re-run effect if activeTask changes
 
-  // --- New Step Data Polling Logic ---
+  // Combined polling logic for both step and action data
   useEffect(() => {
-    let stepIntervalId: NodeJS.Timeout | null = null;
-
-    const fetchStepData = async () => {
+    let pollingIntervalId: NodeJS.Timeout | null = null;
+    
+    const fetchAgentData = async () => {
       if (!activeTask || activeTask.status.toLowerCase() !== 'running') return;
 
       try {
-        // Poll the step endpoint
-        const stepApiUrl = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/tasks'}/${activeTask.id}/step`;
-        const response = await fetch(stepApiUrl);
-
-        if (!response.ok) {
-          console.error(`Failed to fetch step data: ${response.status}`);
-          return;
-        }
-
-        const stepData: StepData = await response.json();
-        setCurrentStep(stepData);
-
-        // If no longer pending approval, we can slow down polling rate
-        if (!stepData.pending_approval && stepIntervalId) {
-          clearInterval(stepIntervalId);
-          stepIntervalId = setInterval(fetchStepData, 3000); // Slow polling when no approval needed
-        }
-
-      } catch (err) {
-        console.error('Error fetching step data:', err);
-        setStepError('Failed to fetch step information');
-      }
-    };
-
-    if (activeTask && activeTask.status.toLowerCase() === 'running') {
-      fetchStepData(); // Fetch immediately
-      stepIntervalId = setInterval(fetchStepData, 1000); // Poll every second for pending steps
-      console.log('Started polling for step data');
-    } else {
-      // Clear step data if task is not running
-      setCurrentStep(null);
-    }
-
-    return () => {
-      if (stepIntervalId) {
-        clearInterval(stepIntervalId);
-        console.log('Step polling stopped');
-      }
-    };
-  }, [activeTask]);
-
-  // --- New Action Data Polling Logic ---
-  useEffect(() => {
-    let actionIntervalId: NodeJS.Timeout | null = null;
-
-    const fetchActionData = async () => {
-      if (!activeTask || activeTask.status.toLowerCase() !== 'running') return;
-
-      try {
-        // Poll the action endpoint
+        // Poll the action endpoint first (prioritize action data when available)
         const actionApiUrl = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/tasks'}/${activeTask.id}/action`;
-        const response = await fetch(actionApiUrl);
+        const actionResponse = await fetch(actionApiUrl);
 
-        if (!response.ok) {
-          console.error(`Failed to fetch action data: ${response.status}`);
-          return;
+        if (actionResponse.ok) {
+          const actionData: ActionData = await actionResponse.json();
+          
+          // More targeted state update - only set if data has actually changed
+          if (actionData.pending_approval) {
+            // If we have an action needing approval, always update
+            setCurrentStep(prevStep => {
+              // Deep comparison to avoid setting state if nothing meaningful changed
+              if (!prevStep || 
+                  prevStep.pending_approval !== actionData.pending_approval ||
+                  prevStep.next_goal !== actionData.next_goal ||
+                  prevStep.action_name !== actionData.action_name ||
+                  JSON.stringify(prevStep.action_details) !== JSON.stringify(actionData.action_details)) {
+                return actionData as StepData;
+              }
+              return prevStep;
+            });
+            
+            // Set faster polling only once when we detect pending approval
+            if (pollingIntervalId) {
+              clearInterval(pollingIntervalId);
+              pollingIntervalId = setInterval(fetchAgentData, 1000); // Poll every second while waiting for approval
+            }
+            
+            // If we have pending approval, no need to check step data
+            return;
+          } else if (!currentStep) {
+            // If no current step but action data exists, use it
+            setCurrentStep(actionData as StepData);
+          }
+          
+          // Slow down polling if we have action data but no pending approval
+          if (!actionData.pending_approval && pollingIntervalId) {
+            clearInterval(pollingIntervalId);
+            pollingIntervalId = setInterval(fetchAgentData, 3000); // Slower polling when no approval needed
+          }
+        } else {
+          console.error(`Failed to fetch action data: ${actionResponse.status}`);
         }
 
-        const actionData: ActionData = await response.json();
-        setCurrentStep(actionData as StepData); // Reuse currentStep state for action data
+        // Only fetch step data if action data wasn't available or didn't have pending approval
+        const stepApiUrl = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/tasks'}/${activeTask.id}/step`;
+        const stepResponse = await fetch(stepApiUrl);
 
-        // If no longer pending approval, we can slow down polling rate
-        if (!actionData.pending_approval && actionIntervalId) {
-          clearInterval(actionIntervalId);
-          actionIntervalId = setInterval(fetchActionData, 3000); // Slow polling when no approval needed
+        if (stepResponse.ok) {
+          const stepData: StepData = await stepResponse.json();
+          
+          // Only update if there's pending approval or no current step yet
+          if (stepData.pending_approval) {
+            setCurrentStep(prevStep => {
+              // Only update if something actually changed
+              if (!prevStep || prevStep.pending_approval !== stepData.pending_approval) {
+                return stepData;
+              }
+              return prevStep;
+            });
+            
+            // If step is pending approval, poll more frequently
+            if (pollingIntervalId) {
+              clearInterval(pollingIntervalId);
+              pollingIntervalId = setInterval(fetchAgentData, 1000);
+            }
+          } else if (!currentStep) {
+            setCurrentStep(stepData);
+          }
+        } else {
+          console.error(`Failed to fetch step data: ${stepResponse.status}`);
         }
-
       } catch (err) {
-        console.error('Error fetching action data:', err);
-        setStepError('Failed to fetch action information');
+        console.error('Error fetching agent data:', err);
+        setStepError('Failed to fetch agent information');
       }
     };
 
     if (activeTask && activeTask.status.toLowerCase() === 'running') {
-      fetchActionData(); // Fetch immediately
-      actionIntervalId = setInterval(fetchActionData, 1000); // Poll every second for pending actions
-      console.log('Started polling for action data');
+      fetchAgentData(); // Fetch immediately
+      pollingIntervalId = setInterval(fetchAgentData, 3000); // Start with slower polling by default
+      console.log('Started combined polling for agent data');
     } else {
-      // Clear action data if task is not running
+      // Only clear step data if task is not running
       setCurrentStep(null);
     }
 
     return () => {
-      if (actionIntervalId) {
-        clearInterval(actionIntervalId);
-        console.log('Action polling stopped');
+      if (pollingIntervalId) {
+        clearInterval(pollingIntervalId);
+        console.log('Agent data polling stopped');
       }
     };
-  }, [activeTask]);
+  }, [activeTask]); // Remove currentStep from dependency array
 
   // Function to handle task creation via API
   const handleCreateTask = async (event: React.FormEvent) => {

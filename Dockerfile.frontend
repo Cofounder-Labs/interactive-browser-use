@@ -1,48 +1,53 @@
 # Stage 1: Build the Next.js application
 FROM node:20-alpine AS builder
 
+# Use dumb-init to handle PID 1 correctly (optional but good practice)
+RUN apk add --no-cache dumb-init
+
 # Install pnpm
-RUN npm install -g pnpm
+RUN corepack enable && corepack prepare pnpm@latest --activate
 
 # Set working directory
+WORKDIR /app
+
+# Copy only lockfile and package.json first for better layer caching
+COPY frontend/pnpm-lock.yaml frontend/package.json ./frontend/
+
 WORKDIR /app/frontend
 
-# Copy package.json and pnpm-lock.yaml
-COPY frontend/package.json frontend/pnpm-lock.yaml ./
-# Ensure correct file names if using package-lock.json or yarn.lock with pnpm import
-# COPY frontend/package*.json ./
+# Install dependencies using pnpm (only production if no build-time deps)
+RUN pnpm install --frozen-lockfile
 
-# Install dependencies using pnpm
-RUN pnpm install
+# Copy the rest of the app
+COPY frontend/ ./ 
 
-# Copy the rest of the frontend application code
-COPY frontend/ .
-
-# Set build-time environment variable (if needed, e.g., for API URL)
-# ARG NEXT_PUBLIC_API_URL
-# ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
-
-# Build the Next.js application using pnpm
+# Build Next.js app
 RUN pnpm run build
 
 # Stage 2: Production image
 FROM node:20-alpine
 
-# Install pnpm globally in the final stage as well
-RUN npm install -g pnpm
+# Use dumb-init to handle PID 1 correctly
+RUN apk add --no-cache dumb-init && corepack enable && corepack prepare pnpm@latest --activate
 
+# Set workdir
 WORKDIR /app/frontend
 
-# Copy necessary files from the builder stage
+# Copy necessary files from builder
 COPY --from=builder /app/frontend/.next ./.next
 COPY --from=builder /app/frontend/public ./public
-COPY --from=builder /app/frontend/package.json .
-COPY --from=builder /app/frontend/pnpm-lock.yaml .
-# Copy node_modules (pnpm structure might differ, consider if needed)
-COPY --from=builder /app/frontend/node_modules ./node_modules 
+COPY --from=builder /app/frontend/package.json ./package.json
+COPY --from=builder /app/frontend/pnpm-lock.yaml ./pnpm-lock.yaml
+COPY --from=builder /app/frontend/node_modules ./node_modules
 
-# Expose the port Next.js runs on
+# Set NODE_ENV for production
+ENV NODE_ENV=production
+
+# Expose the Next.js port
 EXPOSE 3000
 
-# Command to run the application using pnpm
-CMD ["pnpm", "start"] 
+# Use dumb-init for proper signal handling
+ENTRYPOINT ["dumb-init", "--"]
+
+# Run the production server
+CMD ["pnpm", "start"]
