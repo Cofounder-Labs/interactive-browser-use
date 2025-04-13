@@ -6,9 +6,10 @@ A web-based interface allowing users to direct, observe, and control an AI agent
 
 ### Prerequisites
 
-- Python 3.11 or higher
-- Poetry (Python package manager)
-- Chrome browser installed (for browser automation)
+- Python 3.11 or higher (if running locally without Docker)
+- Poetry (Python package manager, if running locally without Docker)
+- Chrome browser installed (for browser automation, if running locally without Docker)
+- Docker and Docker Compose (if running with Docker)
 
 ### Installation
 
@@ -50,9 +51,26 @@ A web-based interface allowing users to direct, observe, and control an AI agent
 
    Note: You need to provide either OpenAI API key or Azure OpenAI configuration, but not both.
 
-## Running the Application
+### Running with Docker (Recommended)
 
-### Starting the Web Server
+1.  Ensure Docker and Docker Compose are installed on your system.
+2.  Copy the example environment file:
+    ```bash
+    cp .env.example .env
+    ```
+3.  Edit the `.env` file and add your API keys and configurations as described in the local setup section. Ensure `CHROME_DEBUG_PORT` is set (e.g., 9222) and `APP_PORT` is set (e.g., 8000).
+4.  Build and run the services using Docker Compose:
+    ```bash
+    docker compose up --build -d
+    ```
+    This command builds the images if they don't exist and starts the backend server and the Chrome instance in detached mode.
+5.  The application will be accessible at `http://localhost:8000` (or the `APP_PORT` you configured).
+6.  To stop the services:
+    ```bash
+    docker compose down
+    ```
+
+### Running Locally (Without Docker)
 
 1. Activate the Poetry environment:
    ```bash
@@ -63,7 +81,7 @@ A web-based interface allowing users to direct, observe, and control an AI agent
    ```bash
    poetry run python run.py
    ```
-   This will start the FastAPI server on `http://localhost:8000` by default.
+   This will start the FastAPI server on `http://localhost:8000` by default (or the `APP_PORT` configured in `.env`).
 
    Alternatively, you can run the server directly with uvicorn:
    ```bash
