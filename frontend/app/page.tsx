@@ -392,17 +392,24 @@ export default function Home() {
   const handleCancelGoal = async () => {
     if (!activeTask || isLoading || stepLoading || isTerminalStatus(activeTask.status)) return;
 
-    setStepLoading(true);
     setStepError(null);
     setError(null);
 
+    // If task is still in 'created' state, just reset the UI
+    if (activeTask?.status?.toLowerCase() === 'created') {
+      handleStartNewTask();
+      return;
+    }
+
+    // Otherwise, proceed with the rejection logic (pausing the task)
+    setStepLoading(true); // Start loading indication only if rejecting
+
     try {
-      const data = await cancelGoal(activeTask.id);
-      console.log('Goal cancelled');
-      setActiveTask(prev => prev ? {...prev, status: data?.status || 'stopped'} : null);
+      const data = await rejectAction(activeTask.id);
+      console.log('Goal cancelled (rejected)');
+      setActiveTask(prev => prev ? {...prev, status: data?.status || 'paused'} : null);
       setCurrentStep(null);
       setLatestThought(null);
-      setShowVnc(false);
     } catch (err) {
       console.error('Error cancelling goal:', err);
       const errorMessage = err instanceof Error ? err.message : 'Failed to cancel goal';
