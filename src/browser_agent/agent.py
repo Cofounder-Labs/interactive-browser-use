@@ -283,7 +283,8 @@ class BrowserAgent:
                 use_vision=False,  # Disable vision to reduce complexity
                 max_failures=2,    # Limit the number of retries
                 browser=self.browser,  # Use our pre-launched browser instance
-                planner_llm=llm
+                planner_llm=llm,
+                planner_interval=4
             )
             
             # Hook into the planner to capture its output
