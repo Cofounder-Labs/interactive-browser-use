@@ -586,7 +586,9 @@ export default function Home() {
                 </div>
                 <div className="flex items-center space-x-4 flex-shrink-0">
                   {getStatusBadge(activeTask.status.toLowerCase())}
-                  <Separator orientation="vertical" className="h-6 hidden sm:block" />
+                  {activeTask.status.toLowerCase() !== 'created' && (
+                    <Separator orientation="vertical" className="h-6 hidden sm:block" />
+                  )}
                   <span className="text-sm text-muted-foreground hidden sm:inline">
                     {currentStep?.index && currentStep?.total
                       ? `Action ${currentStep.index}/${currentStep.total}`
@@ -594,19 +596,21 @@ export default function Home() {
                       ? `Step ${currentStep.step_number}`
                       : (activeTask.status.toLowerCase() === 'running' ? 'Running...' : '')}
                   </span>
-                  <Button variant="outline" size="sm" onClick={toggleVnc} className="gap-1">
-                    {showVnc ? (
-                      <>
-                        <MonitorX className="h-4 w-4" />
-                        <span className="hidden sm:inline">Hide Browser</span>
-                      </>
-                    ) : (
-                      <>
-                        <MonitorPlay className="h-4 w-4" />
-                        <span className="hidden sm:inline">Show Browser</span>
-                      </>
-                    )}
-                  </Button>
+                  {activeTask.status.toLowerCase() !== 'created' && (
+                    <Button variant="outline" size="sm" onClick={toggleVnc} className="gap-1">
+                      {showVnc ? (
+                        <>
+                          <MonitorX className="h-4 w-4" />
+                          <span className="hidden sm:inline">Hide Browser</span>
+                        </>
+                      ) : (
+                        <>
+                          <MonitorPlay className="h-4 w-4" />
+                          <span className="hidden sm:inline">Show Browser</span>
+                        </>
+                      )}
+                    </Button>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -643,10 +647,17 @@ export default function Home() {
               </div>
               {activeTask && !showVnc && !isTerminalStatus(activeTask.status) && !isPaused(activeTask.status) && (
                 <div className="h-20 flex items-center justify-center rounded-lg border border-dashed border-muted-foreground/50 bg-muted/20 my-5">
-                  <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                    <Loader2 className="h-6 w-6 animate-spin" />
-                    <p>Preparing browser session...</p>
-                  </div>
+                  {activeTask.status.toLowerCase() === 'created' ? (
+                    <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                      <Loader2 className="h-6 w-6 animate-spin" />
+                      <p>Preparing browser session...</p>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                      <Laptop className="h-6 w-6" />
+                      <p>Agent is working in the browser...</p>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
