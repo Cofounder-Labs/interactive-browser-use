@@ -456,7 +456,30 @@ export default function Home() {
         throw new Error(`Failed to approve action: ${response.status}`);
       }
       
-      // We'll get updated action state from polling
+      // Immediately update UI state to show processing mode
+      // This prevents the buttons from staying in approval mode
+      setCurrentStep(prev => prev ? {...prev, pending_approval: false} : null);
+      
+      // Force an immediate data fetch to get the latest state
+      const fetchAgentData = async () => {
+        try {
+          const actionApiUrl = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/tasks'}/${activeTask.id}/action`;
+          const actionResponse = await fetch(actionApiUrl);
+          
+          if (actionResponse.ok) {
+            const actionData = await actionResponse.json();
+            // Only update if not pending approval (showing we're in execution mode)
+            if (!actionData.pending_approval) {
+              setCurrentStep(actionData);
+            }
+          }
+        } catch (err) {
+          console.error('Error fetching updated agent data after approval:', err);
+        }
+      };
+      
+      // Fetch updated data after a short delay
+      setTimeout(fetchAgentData, 500);
       
     } catch (err) {
       console.error('Error approving action:', err);
@@ -771,10 +794,22 @@ export default function Home() {
                           disabled={stepLoading}
                           className={`bg-green-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-green-700 flex items-center focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition duration-150 ease-in-out ${stepLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
                         >
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                          </svg>
-                          {stepLoading ? 'Processing...' : 'Approve'}
+                          {stepLoading ? (
+                            <>
+                              <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                              </svg>
+                              Processing...
+                            </>
+                          ) : (
+                            <>
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                              </svg>
+                              Approve
+                            </>
+                          )}
                         </button>
                         <button 
                           onClick={handleRejectAction}
