@@ -49,6 +49,26 @@ interface ActionData {
   human_readable_description?: string;
 }
 
+// Define interfaces for planner thoughts
+interface PlannerThought {
+  timestamp: number;
+  content: {
+    state_analysis: string;
+    progress_evaluation: string;
+    challenges: string;
+    next_steps: string[];
+    reasoning: string;
+  };
+  formatted_time: string;
+}
+
+interface PlannerThoughtsResponse {
+  has_thoughts: boolean;
+  latest: PlannerThought | null;
+  all_thoughts: PlannerThought[];
+  updated_since_last_fetch: boolean;
+}
+
 export default function Home() {
   // State to manage which view is active
   const [activeTask, setActiveTask] = useState<Task | null>(null); // Use Task interface
@@ -61,6 +81,11 @@ export default function Home() {
   const [currentStep, setCurrentStep] = useState<StepData | null>(null);
   const [stepLoading, setStepLoading] = useState(false);
   const [stepError, setStepError] = useState<string | null>(null);
+  
+  // New state for planner thoughts
+  const [latestThought, setLatestThought] = useState<PlannerThought | null>(null);
+  const [newThoughtReceived, setNewThoughtReceived] = useState(false);
+  const [displayedSteps, setDisplayedSteps] = useState<string[]>([]);
 
   // --- Status Polling Logic --- 
   useEffect(() => {
@@ -126,6 +151,8 @@ export default function Home() {
   }, [activeTask]); // Re-run effect if activeTask changes
 
   // Combined polling logic for both step and action data
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // intentionally omitting currentStep to prevent feedback loop
   useEffect(() => {
     let pollingIntervalId: NodeJS.Timeout | null = null;
     
@@ -226,7 +253,88 @@ export default function Home() {
         console.log('Agent data polling stopped');
       }
     };
-  }, [activeTask]); // Remove currentStep from dependency array
+  }, [activeTask]); // Intentionally omitting currentStep to prevent feedback loop
+
+  // Update the planner thoughts polling function
+  useEffect(() => {
+    let plannerPollingId: NodeJS.Timeout | null = null;
+    
+    const fetchPlannerThoughts = async () => {
+      if (!activeTask) return;
+      
+      try {
+        const plannerApiUrl = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/tasks'}/${activeTask.id}/planner-thoughts`;
+        console.log('Fetching planner thoughts from:', plannerApiUrl);
+        const response = await fetch(plannerApiUrl);
+        
+        if (!response.ok) {
+          console.error(`Failed to fetch planner thoughts: ${response.status}`);
+          return;
+        }
+        
+        const data: PlannerThoughtsResponse = await response.json();
+        console.log('Planner thoughts response:', data);
+        
+        // Only keep track of the latest thought
+        if (data.latest && (!latestThought || data.latest.timestamp !== latestThought.timestamp)) {
+          setLatestThought(data.latest);
+          setNewThoughtReceived(true);
+          
+          // Reset the streaming state for new thought
+          setDisplayedSteps([]);
+          
+          // Start the streaming effect for next steps only
+          streamNextSteps(data.latest.content.next_steps);
+          
+          // Mark as seen
+          const markSeenUrl = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/tasks'}/${activeTask.id}/planner-thoughts/mark-seen`;
+          await fetch(markSeenUrl, { 
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+      } catch (err) {
+        console.error('Error fetching planner thoughts:', err);
+      }
+    };
+    
+    // Function to simulate streaming effect for next steps
+    const streamNextSteps = (steps: string[]) => {
+      if (!steps || steps.length === 0) return;
+      
+      // Filter out empty steps
+      const filteredSteps = steps.filter(step => step.trim().length > 0);
+      if (filteredSteps.length === 0) return;
+      
+      let currentStepIndex = 0;
+      
+      const stepInterval = setInterval(() => {
+        if (currentStepIndex < filteredSteps.length) {
+          setDisplayedSteps(prev => [...prev, filteredSteps[currentStepIndex]]);
+          currentStepIndex++;
+        } else {
+          clearInterval(stepInterval);
+          // After all steps displayed, clear new thought indicator after delay
+          setTimeout(() => setNewThoughtReceived(false), 3000);
+        }
+      }, 800); // Stream a new step every 800ms
+      
+      return () => clearInterval(stepInterval);
+    };
+    
+    if (activeTask) {
+      fetchPlannerThoughts(); // Fetch immediately
+      plannerPollingId = setInterval(fetchPlannerThoughts, 3000); // Poll every 3 seconds
+      console.log('Started polling for planner thoughts');
+    }
+    
+    return () => {
+      if (plannerPollingId) {
+        clearInterval(plannerPollingId);
+        console.log('Planner thoughts polling stopped');
+      }
+    };
+  }, [activeTask, latestThought]);
 
   // Function to handle task creation via API
   const handleCreateTask = async (event: React.FormEvent) => {
@@ -429,6 +537,62 @@ export default function Home() {
     setCurrentStep(null); // Clear step data
   };
 
+  // Replace the existing Planner Thoughts Box with the updated version
+  const PlannerThoughtsBox = () => (
+    <div className="bg-white rounded-lg shadow-lg p-4 transition-all duration-300">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center">
+          <svg className="h-5 w-5 text-blue-600 mr-2" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.707l-3-3a1 1 0 00-1.414 0l-3 3a1 1 0 001.414 1.414L9 9.414V13a1 1 0 102 0V9.414l1.293 1.293a1 1 0 001.414-1.414z" clipRule="evenodd" transform="rotate(180 10 10)"></path>
+          </svg>
+          <h3 className="font-semibold text-gray-800">Planner Module</h3>
+        </div>
+        {newThoughtReceived && (
+          <span className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full animate-pulse">
+            New thoughts
+          </span>
+        )}
+      </div>
+      
+      {latestThought ? (
+        <div className="space-y-4">
+          {/* Progress */}
+          <div className="bg-gray-50 p-3 rounded-lg border border-gray-200">
+            <div className="text-xs font-semibold text-gray-500 mb-1">Progress</div>
+            <div className="text-sm text-gray-700">{latestThought.content.progress_evaluation}</div>
+          </div>
+          
+          {/* Next Steps Section */}
+          <div className="bg-blue-50 p-3 rounded-lg border border-blue-200">
+            <div className="text-xs font-semibold text-blue-700 mb-2">Next Steps</div>
+            <div className="space-y-2">
+              {displayedSteps.map((step, idx) => (
+                <div key={idx} className="flex items-start">
+                  <span className="flex-shrink-0 h-5 w-5 bg-blue-500 text-white rounded-full flex items-center justify-center text-xs mr-2">{idx + 1}</span>
+                  <span className="text-sm text-gray-700">{step}</span>
+                </div>
+              ))}
+              {displayedSteps.length < (latestThought.content.next_steps?.filter(step => step.trim().length > 0).length || 0) && (
+                <div className="flex items-center">
+                  <div className="ml-7 h-4 w-4 relative">
+                    <div className="animate-ping absolute h-4 w-4 rounded-full bg-blue-400 opacity-75"></div>
+                    <div className="relative rounded-full h-3 w-3 bg-blue-500"></div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+          
+          <div className="text-xs text-right text-gray-400">{latestThought.formatted_time}</div>
+        </div>
+      ) : (
+        <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 text-center">
+          <p className="text-gray-500">No planner thoughts available yet</p>
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <main className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 to-indigo-100 p-4">
       <div className={`transition-all duration-300 ease-in-out w-full ${activeTask ? 'max-w-6xl' : 'max-w-xl'}`}> {/* Dynamic width */}
@@ -438,7 +602,7 @@ export default function Home() {
             <div className="flex items-center justify-center mb-8">
               {/* Replace with your actual SVG or Image component - simplified */}
               <svg className="h-8 w-8 text-purple-600 mr-3" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.707l-3-3a1 1 0 00-1.414 0l-3 3a1 1 0 001.414 1.414L9 9.414V13a1 1 0 102 0V9.414l1.293 1.293a1 1 0 001.414-1.414z" clipRule="evenodd"></path></svg>
-              <h1 className="text-2xl font-bold text-gray-800">Interactive Browser Session</h1>
+              <h1 className="text-2xl font-bold text-gray-800">Interactive Browser Use</h1>
             </div>
             <h2 className="text-lg font-semibold text-gray-700 mb-5 text-center">What task should be performed?</h2>
             <form onSubmit={handleCreateTask}>
@@ -513,6 +677,9 @@ export default function Home() {
                 />
               )}
             </div>
+
+            {/* Replace the planner thoughts section with the new component */}
+            <PlannerThoughtsBox />
 
             {/* Action Bar - Conditionally Rendered */}
             <div className="bg-white rounded-lg shadow-lg p-4 flex flex-col md:flex-row items-center justify-between gap-4">

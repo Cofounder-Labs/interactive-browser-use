@@ -62,6 +62,18 @@ class ActionDataResponse(BaseModel):
     step_number: Optional[int] = None
     human_readable_description: Optional[str] = None  # Human-friendly description of the action
 
+# NEW: Planner thoughts model
+class PlannerThought(BaseModel):
+    timestamp: float
+    content: Dict[str, Any]  # Changed from string to Dict to handle structured data
+    formatted_time: str
+
+class PlannerThoughtsResponse(BaseModel):
+    has_thoughts: bool
+    latest: Optional[PlannerThought] = None
+    all_thoughts: List[PlannerThought] = []
+    updated_since_last_fetch: bool = False
+
 # Store active tasks and their states
 # Structure: {task_id: {"agent": BrowserAgent, "description": str, "status": str, "events": []}}
 active_tasks: Dict[str, Dict[str, Any]] = {}
@@ -371,7 +383,7 @@ async def get_action_data(task_id: str):
     
     # Generate human-readable description if pending approval
     human_readable_description = None
-    if action_data.get("pending_approval") and "action" in action_data and isinstance(action_data["action"], dict):
+    if "action" in action_data and isinstance(action_data["action"], dict):
         # Extract relevant information
         action_name = action_data.get("action_name", "unknown action")
         action_details = action_data.get("action_details", {})
@@ -397,7 +409,7 @@ async def get_action_data(task_id: str):
                 ACTION DETAILS: {action_details}
                 
                 Provide a short, clear sentence describing what this action will do in the context of the goal.
-                Start with "I'll" or similar first-person phrasing.
+                Use the goal information to resolve any ambiguity in the action details and don't use ordinals in the description.
                 Keep it under 12 words and very human-friendly.
                 """
                 
@@ -492,4 +504,32 @@ async def reject_action(task_id: str):
         await _handle_event(task_id, {"type": "user_action", "message": "User rejected the action, agent paused"})
         return ApprovalResponse(success=True, message="Action rejected, agent paused")
     else:
-        return ApprovalResponse(success=False, message="No action is pending approval") 
+        return ApprovalResponse(success=False, message="No action is pending approval")
+
+# NEW: Get planner thoughts endpoint
+@api_router.get("/tasks/{task_id}/planner-thoughts", response_model=PlannerThoughtsResponse)
+async def get_planner_thoughts(task_id: str):
+    """Gets the latest thoughts from the planner component of the agent."""
+    if task_id not in active_tasks:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    task_state = active_tasks[task_id]
+    agent = task_state["agent"]
+    
+    # Get planner thoughts from agent
+    thoughts_data = await agent.get_planner_thoughts()
+    
+    return PlannerThoughtsResponse(**thoughts_data)
+
+# NEW: Mark planner thoughts as seen
+@api_router.post("/tasks/{task_id}/planner-thoughts/mark-seen")
+async def mark_planner_thoughts_seen(task_id: str):
+    """Marks the planner thoughts as seen to help clients track updates."""
+    if task_id not in active_tasks:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    task_state = active_tasks[task_id]
+    agent = task_state["agent"]
+    
+    result = await agent.mark_planner_thoughts_seen()
+    return result 

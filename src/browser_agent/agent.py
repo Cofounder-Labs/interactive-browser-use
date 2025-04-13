@@ -11,6 +11,7 @@ import logging
 import os
 import asyncio
 from .utils.chrome import get_browser_instance
+import time
 
 class BrowserAgent:
     """Wrapper class for browser-use functionality."""
@@ -24,7 +25,7 @@ class BrowserAgent:
             on_event: Optional callback function for agent events
         """
         self.task = task
-        self.on_event = on_event
+        self.on_event = on_event or (lambda event: None)  # Default no-op event handler
         self.agent = None
         self.browser = None
         self._setup_logging()
@@ -38,7 +39,13 @@ class BrowserAgent:
         self.current_action_index = 0
         self.action_approval_event = asyncio.Event()
         self.current_batch_next_goal: Optional[str] = None
-        self.current_model_output = None  # Store the latest model output directly
+        self.current_model_output = None
+        # Add planner state tracking
+        self.planner_thoughts = []
+        self.latest_plan = None
+        self.planner_updated = False
+        self.current_step = None
+        self.last_action_details = {}
         
     def _setup_logging(self):
         """Set up logging with rich formatting."""
@@ -275,8 +282,100 @@ class BrowserAgent:
                 llm=llm,
                 use_vision=False,  # Disable vision to reduce complexity
                 max_failures=2,    # Limit the number of retries
-                browser=self.browser  # Use our pre-launched browser instance
+                browser=self.browser,  # Use our pre-launched browser instance
+                planner_llm=llm
             )
+            
+            # Hook into the planner to capture its output
+            original_run_planner = self.agent._run_planner
+            
+            async def wrapped_run_planner(*args, **kwargs):
+                # Log when planner is being called
+                self.logger.info(f"🧠 Planner is being called at step {self.agent.state.n_steps if hasattr(self.agent, 'state') else 'unknown'}")
+                start_time = time.time()
+                
+                # Call the original method
+                plan = await original_run_planner(*args, **kwargs)
+                
+                # Calculate execution time
+                execution_time = time.time() - start_time
+                
+                # Capture the plan if it exists
+                if plan:
+                    timestamp = time.time()
+                    
+                    # Try to parse the plan as structured data
+                    try:
+                        # Check if the plan is already in a structured format (dict)
+                        if isinstance(plan, dict):
+                            structured_plan = plan
+                        else:
+                            # Try to parse JSON from the plan text
+                            import json
+                            import re
+                            
+                            # Check if the text might be JSON formatted
+                            if plan.strip().startswith('{') and plan.strip().endswith('}'):
+                                try:
+                                    structured_plan = json.loads(plan)
+                                except json.JSONDecodeError:
+                                    # Not valid JSON, try to parse it as structured text
+                                    structured_plan = self._parse_planner_text(plan)
+                            else:
+                                # Parse as structured text
+                                structured_plan = self._parse_planner_text(plan)
+                            
+                        # Ensure we have all required fields
+                        required_fields = ["state_analysis", "progress_evaluation", "challenges", "next_steps", "reasoning"]
+                        for field in required_fields:
+                            if field not in structured_plan:
+                                if field == "next_steps" and "next_steps" not in structured_plan:
+                                    # Try to extract steps from text if missing
+                                    structured_plan["next_steps"] = self._extract_steps(structured_plan.get("reasoning", ""))
+                                else:
+                                    structured_plan[field] = ""
+                        
+                        # Ensure next_steps is always a list
+                        if not isinstance(structured_plan["next_steps"], list):
+                            structured_plan["next_steps"] = [structured_plan["next_steps"]]
+                            
+                    except Exception as e:
+                        self.logger.warning(f"Failed to parse planner output as structured data: {str(e)}")
+                        # Fallback to unstructured format
+                        structured_plan = {
+                            "state_analysis": "",
+                            "progress_evaluation": "Task in progress",
+                            "challenges": "",
+                            "next_steps": [plan],
+                            "reasoning": plan
+                        }
+                        
+                    plan_data = {
+                        "timestamp": timestamp,
+                        "content": structured_plan,
+                        "formatted_time": time.strftime("%H:%M:%S", time.localtime(timestamp))
+                    }
+                    self.latest_plan = plan_data
+                    self.planner_thoughts.append(plan_data)
+                    self.planner_updated = True
+                    
+                    # Log the plan content and execution time
+                    self.logger.info(f"🧠 Planner generated thoughts in {execution_time:.2f}s")
+                    self.logger.info(f"🧠 Plan content: {str(structured_plan)[:200]}..." if len(str(structured_plan)) > 200 else f"🧠 Plan content: {structured_plan}")
+                    
+                    # Notify about the new plan
+                    self._handle_event({
+                        "type": "planner_updated",
+                        "message": "Planner has generated new thoughts",
+                        "data": plan_data
+                    })
+                else:
+                    self.logger.warning("🧠 Planner was called but returned no plan")
+                
+                return plan
+            
+            # Replace the original planner method with our wrapped version
+            self.agent._run_planner = wrapped_run_planner
             
             # Create a hook for after get_next_action to store the model output
             original_get_next_action = self.agent.get_next_action
@@ -363,3 +462,92 @@ class BrowserAgent:
         
         # Don't close the browser instance as it's shared
         self.browser = None 
+
+    # New method to get planner thoughts
+    async def get_planner_thoughts(self):
+        """Get the latest planner thoughts and all previous thoughts."""
+        if not self.planner_thoughts:
+            return {
+                "has_thoughts": False,
+                "latest": None,
+                "all_thoughts": []
+            }
+        
+        return {
+            "has_thoughts": True,
+            "latest": self.latest_plan,
+            "all_thoughts": self.planner_thoughts,
+            "updated_since_last_fetch": self.planner_updated
+        }
+        
+    # Reset the planner updated flag after fetching
+    async def mark_planner_thoughts_seen(self):
+        """Mark planner thoughts as seen so clients can track updates."""
+        self.planner_updated = False
+        return {"success": True}
+
+    def _parse_planner_text(self, text):
+        """Parse planner text output into structured format."""
+        import re
+        
+        # Initialize the structured plan
+        structured_plan = {
+            "state_analysis": "",
+            "progress_evaluation": "",
+            "challenges": "",
+            "next_steps": [],
+            "reasoning": ""
+        }
+        
+        # Define patterns to look for each section
+        patterns = {
+            "state_analysis": r"(?:state analysis|current state):(.*?)(?=progress|evaluation|challenges|next steps|reasoning|\Z)",
+            "progress_evaluation": r"(?:progress|evaluation):(.*?)(?=state|challenges|next steps|reasoning|\Z)",
+            "challenges": r"challenges:(.*?)(?=state|progress|evaluation|next steps|reasoning|\Z)",
+            "next_steps": r"next steps:(.*?)(?=state|progress|evaluation|challenges|reasoning|\Z)",
+            "reasoning": r"reasoning:(.*?)(?=state|progress|evaluation|challenges|next steps|\Z)"
+        }
+        
+        # Extract each section using the patterns
+        for key, pattern in patterns.items():
+            match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
+            if match:
+                content = match.group(1).strip()
+                
+                # For next_steps, split into a list of steps
+                if key == "next_steps":
+                    steps = self._extract_steps(content)
+                    structured_plan[key] = steps
+                else:
+                    structured_plan[key] = content
+                    
+        # If we couldn't extract anything meaningful, use the whole text as reasoning
+        if not any(structured_plan.values()):
+            structured_plan["reasoning"] = text.strip()
+            structured_plan["next_steps"] = self._extract_steps(text)
+            
+        return structured_plan
+
+    def _extract_steps(self, text):
+        """Extract steps from text, either numbered or bullet points."""
+        import re
+        
+        # Try to find numbered steps or bullet points
+        step_patterns = [
+            r"\d+\.\s*(.*?)(?=\d+\.|$)",  # Numbered steps like "1. Step one"
+            r"[-*•]\s*(.*?)(?=[-*•]|$)",  # Bullet points like "- Step one" or "• Step one"
+            r"Step \d+:\s*(.*?)(?=Step \d+:|$)"  # "Step 1: Do something"
+        ]
+        
+        for pattern in step_patterns:
+            steps = re.findall(pattern, text, re.DOTALL)
+            if steps:
+                return [step.strip() for step in steps if step.strip()]
+        
+        # If no clear steps found, try to split by newlines
+        lines = [line.strip() for line in text.split('\n') if line.strip()]
+        if len(lines) > 1:
+            return lines
+        
+        # Fallback: just return the whole text as a single step
+        return [text.strip()] if text.strip() else [] 
