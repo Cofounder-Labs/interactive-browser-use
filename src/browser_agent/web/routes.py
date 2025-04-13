@@ -42,13 +42,22 @@ class StepDataResponse(BaseModel):
     url: Optional[str] = None
     action: Optional[Dict[str, Any]] = None
     thought: Optional[Any] = None  # Change type to Any to accept various thought formats
-    screenshot: Optional[str] = None
     step_number: Optional[int] = None
 
 # NEW: Approval response
 class ApprovalResponse(BaseModel):
     success: bool
     message: str
+
+# NEW: Action data model
+class ActionDataResponse(BaseModel):
+    pending_approval: bool
+    action: Optional[Dict[str, Any]] = None
+    next_goal: Optional[str] = None
+    index: Optional[int] = None
+    total: Optional[int] = None
+    url: Optional[str] = None
+    step_number: Optional[int] = None
 
 # Store active tasks and their states
 # Structure: {task_id: {"agent": BrowserAgent, "description": str, "status": str, "events": []}}
@@ -246,7 +255,6 @@ async def get_step_data(task_id: str):
         url=step_data.get("url"),
         action=action,
         thought=thought,
-        screenshot=step_data.get("screenshot"),
         step_number=step_data.get("step_number")
     )
 
@@ -339,4 +347,94 @@ async def resume_task(task_id: str):
             raise HTTPException(status_code=400, detail="Cannot resume task, agent not initialized")
     except Exception as e:
         logger.error(f"Task {task_id}: Error resuming task: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to resume task: {str(e)}") 
+        raise HTTPException(status_code=500, detail=f"Failed to resume task: {str(e)}")
+
+# NEW: Get current action endpoint
+@api_router.get("/tasks/{task_id}/action", response_model=ActionDataResponse)
+async def get_action_data(task_id: str):
+    """Gets information about the current action waiting for approval."""
+    if task_id not in active_tasks:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    task_state = active_tasks[task_id]
+    agent = task_state["agent"]
+    
+    # Get current action data from agent
+    action_data = await agent.get_current_step()  # Now includes next_goal if available
+    
+    if action_data is None:
+        # No pending action
+        return ActionDataResponse(pending_approval=False)
+    
+    # Check if this is action data (has an 'action' dictionary)
+    if "action" in action_data and isinstance(action_data["action"], dict):
+        return ActionDataResponse(
+            pending_approval=True,
+            action=action_data.get("action"),
+            next_goal=action_data.get("next_goal"),  # Get directly from action_data
+            index=action_data.get("index"),
+            total=action_data.get("total"),
+            url=action_data.get("url"),
+            step_number=action_data.get("step_number")
+        )
+    
+    # If it's just step data (perhaps older format or edge case)
+    return ActionDataResponse(
+        pending_approval=True,
+        next_goal=action_data.get("next_goal"),  # Get directly from action_data
+        url=action_data.get("url"),
+        step_number=action_data.get("step_number")
+    )
+
+# NEW: Approve action endpoint
+@api_router.post("/tasks/{task_id}/approve-action", response_model=ApprovalResponse)
+async def approve_action(task_id: str):
+    """Approves the current action, allowing the agent to proceed with this action."""
+    if task_id not in active_tasks:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    task_state = active_tasks[task_id]
+    agent = task_state["agent"]
+    
+    # Check if task is in a state that can be approved
+    if task_state["status"] not in ["running"]:
+        return ApprovalResponse(
+            success=False,
+            message=f"Task is in '{task_state['status']}' state and cannot be approved"
+        )
+    
+    # Try to approve the action
+    success = await agent.approve_action()
+    
+    if success:
+        await _handle_event(task_id, {"type": "user_action", "message": "User approved the action"})
+        return ApprovalResponse(success=True, message="Action approved successfully")
+    else:
+        return ApprovalResponse(success=False, message="No action is pending approval")
+
+# NEW: Reject action endpoint
+@api_router.post("/tasks/{task_id}/reject-action", response_model=ApprovalResponse)
+async def reject_action(task_id: str):
+    """Rejects the current action, causing the agent to pause."""
+    if task_id not in active_tasks:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    task_state = active_tasks[task_id]
+    agent = task_state["agent"]
+    
+    # Check if task is in a state that can be rejected
+    if task_state["status"] not in ["running"]:
+        return ApprovalResponse(
+            success=False,
+            message=f"Task is in '{task_state['status']}' state and cannot be rejected"
+        )
+    
+    # Try to reject the action
+    success = await agent.reject_action()
+    
+    if success:
+        task_state["status"] = "paused"
+        await _handle_event(task_id, {"type": "user_action", "message": "User rejected the action, agent paused"})
+        return ApprovalResponse(success=True, message="Action rejected, agent paused")
+    else:
+        return ApprovalResponse(success=False, message="No action is pending approval") 

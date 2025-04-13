@@ -2,7 +2,7 @@
 Agent wrapper for browser-use library.
 """
 
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, List
 from browser_use import Agent
 from langchain_openai import ChatOpenAI, AzureChatOpenAI
 from rich.console import Console
@@ -34,6 +34,11 @@ class BrowserAgent:
         self.rejected = False
         self.current_step_data = {}
         self.step_approval_event = asyncio.Event()
+        self.current_actions = {}
+        self.current_action_index = 0
+        self.action_approval_event = asyncio.Event()
+        self.current_batch_next_goal: Optional[str] = None
+        self.current_model_output = None  # Store the latest model output directly
         
     def _setup_logging(self):
         """Set up logging with rich formatting."""
@@ -63,9 +68,11 @@ class BrowserAgent:
         """Handler for the on_step_start lifecycle hook"""
         self.logger.debug("Step start hook triggered")
         
-        # Capture the current state of the agent
+        # Store the agent reference so we can use it in on_action_start
+        self.current_agent = agent
+        
+        # We'll still capture the current state for step-level information
         current_page = await agent.browser_context.get_current_page()
-        screenshot = await agent.browser_context.take_screenshot()
         
         # Get model's thoughts and actions if available
         thoughts = agent.state.history.model_thoughts()
@@ -82,68 +89,121 @@ class BrowserAgent:
             "url": current_url,
             "thought": latest_thought,
             "action": latest_action,
-            "screenshot": screenshot,
             "step_number": len(actions)
         }
         
-        # Notify about pending approval
-        self.pending_approval = True
+        # We don't pause here anymore, we'll pause before each action
+        # Just notify about the new step
         self._handle_event({
-            "type": "approval_needed",
-            "message": "Agent is waiting for action approval",
+            "type": "step_started",
+            "message": "Starting a new step",
             "data": self.current_step_data
+        })
+    
+    async def on_action_start(self, action, index, total):
+        """Handler for each individual action before it's executed"""
+        self.logger.debug(f"Action start hook triggered for action {index+1}/{total}")
+        
+        if not hasattr(self, 'current_agent'):
+            self.logger.error("No agent available for action hook")
+            return
+            
+        # Get current page information
+        current_page = await self.current_agent.browser_context.get_current_page()
+        current_url = current_page.url if current_page else None
+        
+        # Create action data with detailed information, including next_goal from model output
+        action_data = {
+            "action": action.dict(),
+            "index": index + 1,
+            "total": total,
+            "url": current_url,
+            "step_number": self.current_step_data.get("step_number"),
+            "next_goal": self.current_batch_next_goal  # This comes from store_model_output
+        }
+        
+        # Notify about pending action approval
+        self.pending_approval = True
+        self.current_action_index = index
+        self.current_actions = action_data
+        
+        self._handle_event({
+            "type": "action_approval_needed",
+            "message": f"Agent is waiting for approval of action {index+1}/{total}",
+            "data": action_data
         })
         
         # Reset approval event and wait for approval
-        self.step_approval_event.clear()
+        self.action_approval_event.clear()
         self.approved = False
         self.rejected = False
         
         # Wait for approval/rejection
-        await self.step_approval_event.wait()
+        await self.action_approval_event.wait()
         
         # Check if approved or rejected
         if self.rejected:
-            self.logger.debug("Step was rejected, pausing agent")
-            agent.pause()
+            self.logger.debug("Action was rejected, pausing agent")
+            # Ensure the underlying agent is paused if rejection occurs
+            if hasattr(self, 'current_agent') and self.current_agent:
+                self.current_agent.pause()
             self._handle_event({
-                "type": "step_rejected",
-                "message": "User rejected the step, agent paused"
+                "type": "action_rejected",
+                "message": "User rejected the action, agent paused"
             })
         else:
-            self.logger.debug("Step was approved, continuing execution")
+            self.logger.debug("Action was approved, executing")
             self._handle_event({
-                "type": "step_approved",
-                "message": "User approved the step"
+                "type": "action_approved",
+                "message": "User approved the action"
             })
         
         self.pending_approval = False
     
-    async def approve_step(self):
-        """Approve the current step and allow the agent to continue"""
+    async def approve_action(self):
+        """Approve the current action and allow the agent to execute it"""
         if not self.pending_approval:
             return False
         
         self.approved = True
         self.rejected = False
-        self.step_approval_event.set()
+        self.action_approval_event.set()
         return True
     
-    async def reject_step(self):
-        """Reject the current step and pause the agent"""
+    async def reject_action(self):
+        """Reject the current action and pause the agent"""
         if not self.pending_approval:
             return False
         
         self.approved = False
         self.rejected = True
-        self.step_approval_event.set()
+        self.action_approval_event.set()
         return True
     
+    async def approve_step(self):
+        """Legacy method for backward compatibility"""
+        return await self.approve_action()
+    
+    async def reject_step(self):
+        """Legacy method for backward compatibility"""
+        return await self.reject_action()
+    
     async def get_current_step(self):
-        """Get data about the current step that is pending approval"""
+        """Get data about the current step/action that is pending approval"""
         if not self.pending_approval:
             return None
-        return self.current_step_data
+        # Return the entire dictionary stored during on_action_start
+        return self.current_actions
+    
+    async def store_model_output(self, model_output):
+        """Stores the model output immediately after it's generated.
+        This hook will be called right after get_next_action() returns."""
+        self.logger.debug("Storing model output from get_next_action")
+        self.current_model_output = model_output
+        # We can directly access next_goal here from the current_state
+        if model_output and hasattr(model_output, 'current_state'):
+            self.current_batch_next_goal = model_output.current_state.next_goal
+            self.logger.debug(f"Set next_goal directly from model output: {self.current_batch_next_goal}")
     
     async def start(self):
         """Start the agent and execute the task."""
@@ -157,13 +217,13 @@ class BrowserAgent:
                     azure_endpoint=os.getenv("AZURE_ENDPOINT"),
                     api_key=os.getenv("AZURE_OPENAI_API_KEY"),
                     api_version="2024-02-15-preview",
-                    model="gpt-4",
+                    model="gpt-4o",
                     temperature=0
                 )
             elif os.getenv("OPENAI_API_KEY"):
                 self.logger.debug("Using OpenAI")
                 llm = ChatOpenAI(
-                    model="gpt-4",
+                    model="gpt-4o",
                     temperature=0,
                     openai_api_key=os.getenv("OPENAI_API_KEY")
                 )
@@ -193,7 +253,7 @@ class BrowserAgent:
             Please complete this task step by step and stop when you see the search results.
             """
             
-            # Create and run the agent with timeout and additional configuration
+            # Create the agent with our custom multi_act wrapper
             self.agent = Agent(
                 task=specific_task,
                 llm=llm,
@@ -202,12 +262,64 @@ class BrowserAgent:
                 browser=self.browser  # Use our pre-launched browser instance
             )
             
+            # Create a hook for after get_next_action to store the model output
+            original_get_next_action = self.agent.get_next_action
+            
+            async def wrapped_get_next_action(*args, **kwargs):
+                # Call the original method
+                result = await original_get_next_action(*args, **kwargs)
+                # Store the result for our wrapper to use
+                await self.store_model_output(result)
+                return result
+            
+            # Replace the original get_next_action with our wrapped version
+            self.agent.get_next_action = wrapped_get_next_action
+            
+            # Create a wrapper for the multi_act method to inject our action-by-action approval
+            original_multi_act = self.agent.multi_act
+            
+            async def wrapped_multi_act(actions: List[Dict], *args, **kwargs):
+                """
+                Intercepts multi_act to implement action-by-action approval.
+                The goal information is already captured from get_next_action wrapper.
+                """
+                results = []
+                
+                for i, action in enumerate(actions):
+                    # Set the current agent context for on_action_start
+                    self.current_agent = self.agent
+                    
+                    # Wait for approval of this specific action
+                    await self.on_action_start(action, i, len(actions))
+                    
+                    # If rejected, stop processing this batch
+                    if self.rejected:
+                        self.logger.debug(f"Action {i+1}/{len(actions)} was rejected, stopping execution")
+                        break
+                    
+                    # Execute just this one action with the original multi_act
+                    single_result = await original_multi_act([action], *args, **kwargs)
+                    
+                    if single_result:
+                        results.extend(single_result)
+                        # If this action completed the task or errored, stop batch processing
+                        if single_result[0].is_done or single_result[0].error:
+                            break
+                
+                # Clean up after batch is complete            
+                self.current_batch_next_goal = None  # Clear goal
+                self.current_model_output = None     # Clear model output
+                return results
+            
+            # Replace the original multi_act with our simplified wrapper
+            self.agent.multi_act = wrapped_multi_act
+            
             self.logger.debug("Agent created, starting task execution...")
             
             try:
                 # Set a timeout of 60 seconds for the task
-                async with asyncio.timeout(600):
-                    # Run the agent with the step approval hook
+                async with asyncio.timeout(60):
+                    # Run the agent with both hooks
                     await self.agent.run(
                         on_step_start=self.on_step_start
                     )

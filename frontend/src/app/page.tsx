@@ -27,6 +27,21 @@ interface StepData {
   thought?: Record<string, unknown>;
   screenshot?: string;
   step_number?: number;
+  index?: number;
+  total?: number;
+  next_goal?: string;
+}
+
+// Define interfaces for the action data
+interface ActionData {
+  pending_approval: boolean;
+  action?: Record<string, unknown>;
+  next_goal?: string;
+  index?: number;
+  total?: number;
+  url?: string;
+  screenshot?: string;
+  step_number?: number;
 }
 
 export default function Home() {
@@ -154,6 +169,55 @@ export default function Home() {
     };
   }, [activeTask]);
 
+  // --- New Action Data Polling Logic ---
+  useEffect(() => {
+    let actionIntervalId: NodeJS.Timeout | null = null;
+
+    const fetchActionData = async () => {
+      if (!activeTask || activeTask.status.toLowerCase() !== 'running') return;
+
+      try {
+        // Poll the action endpoint
+        const actionApiUrl = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/tasks'}/${activeTask.id}/action`;
+        const response = await fetch(actionApiUrl);
+
+        if (!response.ok) {
+          console.error(`Failed to fetch action data: ${response.status}`);
+          return;
+        }
+
+        const actionData: ActionData = await response.json();
+        setCurrentStep(actionData as StepData); // Reuse currentStep state for action data
+
+        // If no longer pending approval, we can slow down polling rate
+        if (!actionData.pending_approval && actionIntervalId) {
+          clearInterval(actionIntervalId);
+          actionIntervalId = setInterval(fetchActionData, 3000); // Slow polling when no approval needed
+        }
+
+      } catch (err) {
+        console.error('Error fetching action data:', err);
+        setStepError('Failed to fetch action information');
+      }
+    };
+
+    if (activeTask && activeTask.status.toLowerCase() === 'running') {
+      fetchActionData(); // Fetch immediately
+      actionIntervalId = setInterval(fetchActionData, 1000); // Poll every second for pending actions
+      console.log('Started polling for action data');
+    } else {
+      // Clear action data if task is not running
+      setCurrentStep(null);
+    }
+
+    return () => {
+      if (actionIntervalId) {
+        clearInterval(actionIntervalId);
+        console.log('Action polling stopped');
+      }
+    };
+  }, [activeTask]);
+
   // Function to handle task creation via API
   const handleCreateTask = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -211,72 +275,6 @@ export default function Home() {
     }
   };
 
-  // New function to handle step approval
-  const handleApproveStep = async () => {
-    if (!activeTask || !currentStep?.pending_approval) return;
-    
-    setStepLoading(true);
-    setStepError(null);
-    
-    try {
-      const apiUrl = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/tasks'}/${activeTask.id}/approve`;
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        }
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Failed to approve step: ${response.status}`);
-      }
-      
-      // Clear current step since it's been approved
-      setCurrentStep(prev => prev ? {...prev, pending_approval: false} : null);
-      
-    } catch (err) {
-      console.error('Error approving step:', err);
-      const errorMessage = err instanceof Error ? err.message : 'Failed to approve step';
-      setStepError(errorMessage);
-    } finally {
-      setStepLoading(false);
-    }
-  };
-  
-  // New function to handle step rejection
-  const handleRejectStep = async () => {
-    if (!activeTask || !currentStep?.pending_approval) return;
-    
-    setStepLoading(true);
-    setStepError(null);
-    
-    try {
-      const apiUrl = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/tasks'}/${activeTask.id}/reject`;
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        }
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Failed to reject step: ${response.status}`);
-      }
-      
-      // Update active task status to paused
-      setActiveTask(prev => prev ? {...prev, status: 'paused'} : null);
-      // Clear current step
-      setCurrentStep(null);
-      
-    } catch (err) {
-      console.error('Error rejecting step:', err);
-      const errorMessage = err instanceof Error ? err.message : 'Failed to reject step';
-      setStepError(errorMessage);
-    } finally {
-      setStepLoading(false);
-    }
-  };
-  
   // New function to resume a paused task
   const handleResumeTask = async () => {
     if (!activeTask || activeTask.status.toLowerCase() !== 'paused') return;
@@ -307,6 +305,71 @@ export default function Home() {
       setError(errorMessage);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // New function to handle action approval
+  const handleApproveAction = async () => {
+    if (!activeTask || !currentStep?.pending_approval) return;
+    
+    setStepLoading(true);
+    setStepError(null);
+    
+    try {
+      const apiUrl = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/tasks'}/${activeTask.id}/approve-action`;
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to approve action: ${response.status}`);
+      }
+      
+      // We'll get updated action state from polling
+      
+    } catch (err) {
+      console.error('Error approving action:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to approve action';
+      setStepError(errorMessage);
+    } finally {
+      setStepLoading(false);
+    }
+  };
+  
+  // New function to handle action rejection
+  const handleRejectAction = async () => {
+    if (!activeTask || !currentStep?.pending_approval) return;
+    
+    setStepLoading(true);
+    setStepError(null);
+    
+    try {
+      const apiUrl = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/tasks'}/${activeTask.id}/reject-action`;
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to reject action: ${response.status}`);
+      }
+      
+      // Update active task status to paused
+      setActiveTask(prev => prev ? {...prev, status: 'paused'} : null);
+      // Clear current step
+      setCurrentStep(null);
+      
+    } catch (err) {
+      console.error('Error rejecting action:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to reject action';
+      setStepError(errorMessage);
+    } finally {
+      setStepLoading(false);
     }
   };
 
@@ -404,9 +467,11 @@ export default function Home() {
                   Status: {activeTask.status}
                 </span>
                 <span className="text-sm text-gray-500 hidden sm:inline">|</span>
-                {/* Update step counter from step data if available */}
+                {/* Display action counter if available */}
                 <span className="text-sm text-gray-500 hidden sm:inline">
-                  {currentStep?.step_number ? `Step ${currentStep.step_number}` : 'Starting...'}
+                  {currentStep?.index && currentStep?.total ? 
+                    `Action ${currentStep.index}/${currentStep.total}` : 
+                    (currentStep?.step_number ? `Step ${currentStep.step_number}` : 'Starting...')}
                 </span>
                 {/* VNC Toggle Button */}
                 <button
@@ -503,9 +568,11 @@ export default function Home() {
                     <div className="flex flex-col">
                       <span className="font-semibold text-gray-800 mb-1">Next Action:</span>
                       <span className="text-gray-700 bg-gray-50 p-2 rounded">
-                        {currentStep?.action ? 
-                          JSON.stringify(currentStep.action).substring(0, 100) + (JSON.stringify(currentStep.action).length > 100 ? '...' : '') : 
-                          'Waiting for agent...'}
+                        {currentStep?.pending_approval && currentStep?.next_goal ? 
+                          currentStep.next_goal :
+                          (currentStep?.action ? 
+                            JSON.stringify(currentStep.action).substring(0, 100) + (JSON.stringify(currentStep.action).length > 100 ? '...' : '') : 
+                            'Waiting for agent...')}
                       </span>
                     </div>
                   </div>
@@ -514,7 +581,7 @@ export default function Home() {
                       // Only show approval buttons when action is pending approval
                       <>
                         <button 
-                          onClick={handleApproveStep}
+                          onClick={handleApproveAction}
                           disabled={stepLoading}
                           className={`bg-green-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-green-700 flex items-center focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition duration-150 ease-in-out ${stepLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
                         >
@@ -524,7 +591,7 @@ export default function Home() {
                           {stepLoading ? 'Processing...' : 'Approve'}
                         </button>
                         <button 
-                          onClick={handleRejectStep}
+                          onClick={handleRejectAction}
                           disabled={stepLoading}
                           className={`bg-red-500 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition duration-150 ease-in-out ${stepLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
                         >
