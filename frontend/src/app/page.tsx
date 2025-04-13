@@ -84,8 +84,8 @@ export default function Home() {
   
   // New state for planner thoughts
   const [latestThought, setLatestThought] = useState<PlannerThought | null>(null);
-  const [newThoughtReceived, setNewThoughtReceived] = useState(false);
-  const [displayedSteps, setDisplayedSteps] = useState<string[]>([]);
+  const [displayedText, setDisplayedText] = useState("");
+  const [isTyping, setIsTyping] = useState(false);
 
   // --- Status Polling Logic --- 
   useEffect(() => {
@@ -151,8 +151,6 @@ export default function Home() {
   }, [activeTask]); // Re-run effect if activeTask changes
 
   // Combined polling logic for both step and action data
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  // intentionally omitting currentStep to prevent feedback loop
   useEffect(() => {
     let pollingIntervalId: NodeJS.Timeout | null = null;
     
@@ -253,7 +251,7 @@ export default function Home() {
         console.log('Agent data polling stopped');
       }
     };
-  }, [activeTask]); // Intentionally omitting currentStep to prevent feedback loop
+  }, [activeTask, currentStep]); // Added currentStep as a dependency
 
   // Update the planner thoughts polling function
   useEffect(() => {
@@ -278,13 +276,13 @@ export default function Home() {
         // Only keep track of the latest thought
         if (data.latest && (!latestThought || data.latest.timestamp !== latestThought.timestamp)) {
           setLatestThought(data.latest);
-          setNewThoughtReceived(true);
           
-          // Reset the streaming state for new thought
-          setDisplayedSteps([]);
+          // Reset for new typewriter effect
+          setDisplayedText("");
+          setIsTyping(true);
           
-          // Start the streaming effect for next steps only
-          streamNextSteps(data.latest.content.next_steps);
+          // Start the typewriter effect for the steps
+          startTypewriterEffect(data.latest.content.next_steps);
           
           // Mark as seen
           const markSeenUrl = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/tasks'}/${activeTask.id}/planner-thoughts/mark-seen`;
@@ -298,28 +296,40 @@ export default function Home() {
       }
     };
     
-    // Function to simulate streaming effect for next steps
-    const streamNextSteps = (steps: string[]) => {
-      if (!steps || steps.length === 0) return;
+    // Function to implement typewriter effect for steps text
+    const startTypewriterEffect = (steps: string[]) => {
+      if (!steps || steps.length === 0) {
+        setIsTyping(false);
+        return;
+      }
       
       // Filter out empty steps
       const filteredSteps = steps.filter(step => step.trim().length > 0);
-      if (filteredSteps.length === 0) return;
+      if (filteredSteps.length === 0) {
+        setIsTyping(false);
+        return;
+      }
       
-      let currentStepIndex = 0;
+      // Combine steps into a single text with line breaks
+      const fullText = filteredSteps.join('\n\n');
+      let currentPosition = 0;
       
-      const stepInterval = setInterval(() => {
-        if (currentStepIndex < filteredSteps.length) {
-          setDisplayedSteps(prev => [...prev, filteredSteps[currentStepIndex]]);
-          currentStepIndex++;
+      // How many characters to add per frame
+      const charsPerFrame = 1;
+      
+      const typeInterval = setInterval(() => {
+        if (currentPosition < fullText.length) {
+          const nextChars = fullText.substring(currentPosition, currentPosition + charsPerFrame);
+          setDisplayedText(prev => prev + nextChars);
+          currentPosition += charsPerFrame;
         } else {
-          clearInterval(stepInterval);
-          // After all steps displayed, clear new thought indicator after delay
-          setTimeout(() => setNewThoughtReceived(false), 3000);
+          // Typing complete
+          clearInterval(typeInterval);
+          setIsTyping(false);
         }
-      }, 800); // Stream a new step every 800ms
+      }, 30); // Adjust speed - lower is faster
       
-      return () => clearInterval(stepInterval);
+      return () => clearInterval(typeInterval);
     };
     
     if (activeTask) {
@@ -538,60 +548,58 @@ export default function Home() {
   };
 
   // Replace the existing Planner Thoughts Box with the updated version
-  const PlannerThoughtsBox = () => (
-    <div className="bg-white rounded-lg shadow-lg p-4 transition-all duration-300">
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center">
-          <svg className="h-5 w-5 text-blue-600 mr-2" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
-            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.707l-3-3a1 1 0 00-1.414 0l-3 3a1 1 0 001.414 1.414L9 9.414V13a1 1 0 102 0V9.414l1.293 1.293a1 1 0 001.414-1.414z" clipRule="evenodd" transform="rotate(180 10 10)"></path>
-          </svg>
-          <h3 className="font-semibold text-gray-800">Planner Module</h3>
-        </div>
-        {newThoughtReceived && (
-          <span className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full animate-pulse">
-            New thoughts
-          </span>
-        )}
-      </div>
-      
-      {latestThought ? (
-        <div className="space-y-4">
-          {/* Progress */}
-          <div className="bg-gray-50 p-3 rounded-lg border border-gray-200">
-            <div className="text-xs font-semibold text-gray-500 mb-1">Progress</div>
-            <div className="text-sm text-gray-700">{latestThought.content.progress_evaluation}</div>
+  const PlannerThoughtsBox = () => {
+    // Helper function to check for terminal statuses
+    const isTaskActive = activeTask && activeTask.status.toLowerCase() === 'running';
+    
+    // Don't render the component if task is not active
+    if (!isTaskActive) return null;
+    
+    return (
+      <div className="bg-white rounded-lg shadow-lg p-4 transition-all duration-300">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center">
+            <svg className="h-5 w-5 text-blue-600 mr-2" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.707l-3-3a1 1 0 00-1.414 0l-3 3a1 1 0 001.414 1.414L9 9.414V13a1 1 0 102 0V9.414l1.293 1.293a1 1 0 001.414-1.414z" clipRule="evenodd" transform="rotate(180 10 10)"></path>
+            </svg>
+            <h3 className="font-semibold text-gray-800">Planner Module</h3>
           </div>
           
-          {/* Next Steps Section */}
-          <div className="bg-blue-50 p-3 rounded-lg border border-blue-200">
-            <div className="text-xs font-semibold text-blue-700 mb-2">Next Steps</div>
-            <div className="space-y-2">
-              {displayedSteps.map((step, idx) => (
-                <div key={idx} className="flex items-start">
-                  <span className="flex-shrink-0 h-5 w-5 bg-blue-500 text-white rounded-full flex items-center justify-center text-xs mr-2">{idx + 1}</span>
-                  <span className="text-sm text-gray-700">{step}</span>
-                </div>
-              ))}
-              {displayedSteps.length < (latestThought.content.next_steps?.filter(step => step.trim().length > 0).length || 0) && (
-                <div className="flex items-center">
-                  <div className="ml-7 h-4 w-4 relative">
-                    <div className="animate-ping absolute h-4 w-4 rounded-full bg-blue-400 opacity-75"></div>
-                    <div className="relative rounded-full h-3 w-3 bg-blue-500"></div>
-                  </div>
-                </div>
-              )}
+          {/* Brain emoji animation when typing */}
+          {isTyping && (
+            <div className="text-xl animate-pulse">
+              🧠
+            </div>
+          )}
+        </div>
+        
+        {latestThought ? (
+          <div className="space-y-4">
+            {/* Progress */}
+            <div className="bg-gray-50 p-3 rounded-lg border border-gray-200">
+              <div className="text-xs font-semibold text-gray-500 mb-1">Progress</div>
+              <div className="text-sm text-gray-700">{latestThought.content.progress_evaluation}</div>
+            </div>
+            
+            {/* Next Steps Section with typewriter effect */}
+            <div className="bg-blue-50 p-3 rounded-lg border border-blue-200">
+              <div className="text-xs font-semibold text-blue-700 mb-2">Next Steps</div>
+              <div className="text-sm text-gray-700 whitespace-pre-wrap">
+                {displayedText}
+                {isTyping && (
+                  <span className="inline-block w-2 h-4 bg-blue-700 ml-1 animate-pulse"></span>
+                )}
+              </div>
             </div>
           </div>
-          
-          <div className="text-xs text-right text-gray-400">{latestThought.formatted_time}</div>
-        </div>
-      ) : (
-        <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 text-center">
-          <p className="text-gray-500">No planner thoughts available yet</p>
-        </div>
-      )}
-    </div>
-  );
+        ) : (
+          <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 text-center">
+            <p className="text-gray-500">No planner thoughts available yet</p>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <main className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 to-indigo-100 p-4">
@@ -604,7 +612,7 @@ export default function Home() {
               <svg className="h-8 w-8 text-purple-600 mr-3" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.707l-3-3a1 1 0 00-1.414 0l-3 3a1 1 0 001.414 1.414L9 9.414V13a1 1 0 102 0V9.414l1.293 1.293a1 1 0 001.414-1.414z" clipRule="evenodd"></path></svg>
               <h1 className="text-2xl font-bold text-gray-800">Interactive Browser Use</h1>
             </div>
-            <h2 className="text-lg font-semibold text-gray-700 mb-5 text-center">What task should be performed?</h2>
+            <h2 className="text-lg font-semibold text-gray-700 mb-5 text-center">What would you like to do today?</h2>
             <form onSubmit={handleCreateTask}>
               <textarea
                 value={taskDescription}
@@ -742,29 +750,17 @@ export default function Home() {
                     </div>
                   )}
                   <div className="flex-grow">
-                    {/* High-level goal display section */}
+                    {/* Keep only the goal display section, renamed to Next Steps */}
                     <div className="flex flex-col mb-4">
-                      <span className="font-semibold text-gray-800 mb-1">Current Goal:</span>
+                      <span className="font-semibold text-gray-800 mb-1">Next Action</span>
                       <span className="text-gray-700 bg-green-50 p-2 rounded">
                         {currentStep?.next_goal ? 
                           currentStep.next_goal : 
-                          'Waiting for agent to set a goal...'}
+                          'Waiting for agent to determine next action...'}
                       </span>
                     </div>
                     
-                    {/* Next action display section */}
-                    <div className="flex flex-col">
-                      <span className="font-semibold text-gray-800 mb-1">Next Action:</span>
-                      <span className="text-gray-700 bg-gray-50 p-2 rounded">
-                        {currentStep?.human_readable_description ? 
-                          currentStep.human_readable_description :
-                          (currentStep?.action_name ? 
-                            `${currentStep.action_name}: ${JSON.stringify(currentStep.action_details)}` :
-                            (currentStep?.action ? 
-                              JSON.stringify(currentStep.action).substring(0, 100) + (JSON.stringify(currentStep.action).length > 100 ? '...' : '') : 
-                              'Waiting for agent...'))}
-                      </span>
-                    </div>
+                    {/* Removed the "Next Action" display section */}
                   </div>
                   <div className="flex space-x-2 flex-wrap gap-2 md:gap-0 md:flex-nowrap">
                     {currentStep?.pending_approval ? (

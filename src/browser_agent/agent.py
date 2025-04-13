@@ -400,19 +400,24 @@ class BrowserAgent:
                 """
                 results = []
                 
-                for i, action in enumerate(actions):
+                # Wait for approval only for the first action in the batch
+                # This gives a single approval per goal, not per action
+                if actions:
                     # Set the current agent context for on_action_start
                     self.current_agent = self.agent
                     
-                    # Wait for approval of this specific action
-                    await self.on_action_start(action, i, len(actions))
+                    # Wait for approval of only the first action
+                    # We'll use this as approval for the entire batch
+                    await self.on_action_start(actions[0], 0, len(actions))
                     
-                    # If rejected, stop processing this batch
+                    # If rejected, don't process any actions in this batch
                     if self.rejected:
-                        self.logger.debug(f"Action {i+1}/{len(actions)} was rejected, stopping execution")
-                        break
-                    
-                    # Execute just this one action with the original multi_act
+                        self.logger.debug(f"Batch of {len(actions)} actions was rejected, stopping execution")
+                        return []
+                
+                # If approved, execute all actions in sequence without further approvals
+                for i, action in enumerate(actions):
+                    # Execute action with the original multi_act
                     single_result = await original_multi_act([action], *args, **kwargs)
                     
                     if single_result:
@@ -421,11 +426,9 @@ class BrowserAgent:
                         if single_result[0].is_done or single_result[0].error:
                             break
                 
-                # Only clear goal if we've processed all actions in the batch or hit a terminal condition
-                if i == len(actions) - 1 or self.rejected or (single_result and (single_result[0].is_done or single_result[0].error)):
-                    # Clean up after batch is complete            
-                    self.current_batch_next_goal = None  # Clear goal
-                    self.current_model_output = None     # Clear model output
+                # Clean up after batch is complete            
+                self.current_batch_next_goal = None  # Clear goal
+                self.current_model_output = None     # Clear model output
                 return results
             
             # Replace the original multi_act with our simplified wrapper
