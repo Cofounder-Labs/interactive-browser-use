@@ -383,51 +383,6 @@ async def get_action_data(task_id: str):
     
     # Generate human-readable description if pending approval
     human_readable_description = None
-    if "action" in action_data and isinstance(action_data["action"], dict):
-        # Extract relevant information
-        action_name = action_data.get("action_name", "unknown action")
-        action_details = action_data.get("action_details", {})
-        next_goal = action_data.get("next_goal", "")
-        
-        # Get the LLM from the agent to use for generating the description
-        llm = None
-        if hasattr(agent, 'agent') and agent.agent is not None and hasattr(agent.agent, 'llm'):
-            llm = agent.agent.llm
-        
-        # If we can access the LLM, generate a description
-        if llm is not None:
-            try:
-                from langchain_core.messages import HumanMessage
-                
-                # Format a prompt for the LLM
-                prompt = f"""
-                You are a helpful assistant describing browser automation actions to users in plain language.
-                
-                GOAL: {next_goal}
-                
-                ACTION TYPE: {action_name}
-                ACTION DETAILS: {action_details}
-                
-                Provide a short, clear sentence describing what this action will do in the context of the goal.
-                Use the goal information to resolve any ambiguity in the action details and don't use ordinals in the description.
-                Keep it under 12 words and very human-friendly.
-                """
-                
-                # Call the LLM to generate a description
-                response = await llm.ainvoke([HumanMessage(content=prompt)])
-                human_readable_description = str(response.content).strip().strip('"\'')
-                
-                # Fallback if response is too long
-                if len(human_readable_description.split()) > 15:
-                    human_readable_description = f"I'll {action_name} to {next_goal.lower()}."
-                
-            except Exception as e:
-                logger.error(f"Error generating human-readable description: {str(e)}")
-                # Fallback to a basic description
-                human_readable_description = f"I'll {action_name} with {', '.join([f'{k}={v}' for k, v in action_details.items() if v])}."
-        else:
-            # Fallback when LLM is not available
-            human_readable_description = f"I'll {action_name} to achieve the goal."
     
     # Check if this is action data (has an 'action' dictionary)
     if "action" in action_data and isinstance(action_data["action"], dict):
