@@ -24,6 +24,8 @@ interface StepData {
   pending_approval: boolean;
   url?: string;
   action?: Record<string, unknown>;
+  action_name?: string;
+  action_details?: Record<string, unknown>;
   thought?: Record<string, unknown>;
   screenshot?: string;
   step_number?: number;
@@ -36,11 +38,12 @@ interface StepData {
 interface ActionData {
   pending_approval: boolean;
   action?: Record<string, unknown>;
+  action_name?: string;
+  action_details?: Record<string, unknown>;
   next_goal?: string;
   index?: number;
   total?: number;
   url?: string;
-  screenshot?: string;
   step_number?: number;
 }
 
@@ -565,11 +568,22 @@ export default function Home() {
                     </div>
                   )}
                   <div className="flex-grow">
+                    {/* High-level goal display section */}
+                    <div className="flex flex-col mb-4">
+                      <span className="font-semibold text-gray-800 mb-1">Current Goal:</span>
+                      <span className="text-gray-700 bg-green-50 p-2 rounded">
+                        {currentStep?.next_goal ? 
+                          currentStep.next_goal : 
+                          'Waiting for agent to set a goal...'}
+                      </span>
+                    </div>
+                    
+                    {/* Next action display section */}
                     <div className="flex flex-col">
                       <span className="font-semibold text-gray-800 mb-1">Next Action:</span>
                       <span className="text-gray-700 bg-gray-50 p-2 rounded">
-                        {currentStep?.pending_approval && currentStep?.next_goal ? 
-                          currentStep.next_goal :
+                        {currentStep?.action_name ? 
+                          `${currentStep.action_name}: ${JSON.stringify(currentStep.action_details)}` :
                           (currentStep?.action ? 
                             JSON.stringify(currentStep.action).substring(0, 100) + (JSON.stringify(currentStep.action).length > 100 ? '...' : '') : 
                             'Waiting for agent...')}

@@ -112,9 +112,15 @@ class BrowserAgent:
         current_page = await self.current_agent.browser_context.get_current_page()
         current_url = current_page.url if current_page else None
         
+        # Extract the specific action name and details for cleaner display
+        action_dict = action.dict()
+        action_name, action_details = self.get_planned_action(action_dict)
+        
         # Create action data with detailed information, including next_goal from model output
         action_data = {
-            "action": action.dict(),
+            "action": action_dict,  # Full action for processing
+            "action_name": action_name,  # Extracted action name for display
+            "action_details": action_details,  # Extracted details for display
             "index": index + 1,
             "total": total,
             "url": current_url,
@@ -204,6 +210,16 @@ class BrowserAgent:
         if model_output and hasattr(model_output, 'current_state'):
             self.current_batch_next_goal = model_output.current_state.next_goal
             self.logger.debug(f"Set next_goal directly from model output: {self.current_batch_next_goal}")
+    
+    def get_planned_action(self, action_data):
+        """Extract the actual planned action name and details from action data."""
+        if not action_data:
+            return None, None
+            
+        for action_name, action_details in action_data.items():
+            if action_details is not None:
+                return action_name, action_details
+        return None, None
     
     async def start(self):
         """Start the agent and execute the task."""
@@ -306,9 +322,11 @@ class BrowserAgent:
                         if single_result[0].is_done or single_result[0].error:
                             break
                 
-                # Clean up after batch is complete            
-                self.current_batch_next_goal = None  # Clear goal
-                self.current_model_output = None     # Clear model output
+                # Only clear goal if we've processed all actions in the batch or hit a terminal condition
+                if i == len(actions) - 1 or self.rejected or (single_result and (single_result[0].is_done or single_result[0].error)):
+                    # Clean up after batch is complete            
+                    self.current_batch_next_goal = None  # Clear goal
+                    self.current_model_output = None     # Clear model output
                 return results
             
             # Replace the original multi_act with our simplified wrapper

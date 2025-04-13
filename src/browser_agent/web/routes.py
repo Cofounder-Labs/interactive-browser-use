@@ -53,6 +53,8 @@ class ApprovalResponse(BaseModel):
 class ActionDataResponse(BaseModel):
     pending_approval: bool
     action: Optional[Dict[str, Any]] = None
+    action_name: Optional[str] = None  # Add extracted action name
+    action_details: Optional[Dict[str, Any]] = None  # Add extracted action details
     next_goal: Optional[str] = None
     index: Optional[int] = None
     total: Optional[int] = None
@@ -371,7 +373,9 @@ async def get_action_data(task_id: str):
         return ActionDataResponse(
             pending_approval=True,
             action=action_data.get("action"),
-            next_goal=action_data.get("next_goal"),  # Get directly from action_data
+            action_name=action_data.get("action_name"),  # Include extracted action name
+            action_details=action_data.get("action_details"),  # Include extracted details
+            next_goal=action_data.get("next_goal"),
             index=action_data.get("index"),
             total=action_data.get("total"),
             url=action_data.get("url"),
@@ -381,7 +385,7 @@ async def get_action_data(task_id: str):
     # If it's just step data (perhaps older format or edge case)
     return ActionDataResponse(
         pending_approval=True,
-        next_goal=action_data.get("next_goal"),  # Get directly from action_data
+        next_goal=action_data.get("next_goal"),
         url=action_data.get("url"),
         step_number=action_data.get("step_number")
     )
