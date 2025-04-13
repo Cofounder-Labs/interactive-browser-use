@@ -19,6 +19,16 @@ interface Task {
   status: string;
 }
 
+// Define interfaces for the step data
+interface StepData {
+  pending_approval: boolean;
+  url?: string;
+  action?: Record<string, unknown>;
+  thought?: Record<string, unknown>;
+  screenshot?: string;
+  step_number?: number;
+}
+
 export default function Home() {
   // State to manage which view is active
   const [activeTask, setActiveTask] = useState<Task | null>(null); // Use Task interface
@@ -26,6 +36,11 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false); // Add loading state
   const [error, setError] = useState<string | null>(null); // Add error state
   const [showVnc, setShowVnc] = useState(true); // State to control VNC visibility, default to true when task is active
+  
+  // New state for step approval
+  const [currentStep, setCurrentStep] = useState<StepData | null>(null);
+  const [stepLoading, setStepLoading] = useState(false);
+  const [stepError, setStepError] = useState<string | null>(null);
 
   // --- Status Polling Logic --- 
   useEffect(() => {
@@ -90,6 +105,55 @@ export default function Home() {
     };
   }, [activeTask]); // Re-run effect if activeTask changes
 
+  // --- New Step Data Polling Logic ---
+  useEffect(() => {
+    let stepIntervalId: NodeJS.Timeout | null = null;
+
+    const fetchStepData = async () => {
+      if (!activeTask || activeTask.status.toLowerCase() !== 'running') return;
+
+      try {
+        // Poll the step endpoint
+        const stepApiUrl = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/tasks'}/${activeTask.id}/step`;
+        const response = await fetch(stepApiUrl);
+
+        if (!response.ok) {
+          console.error(`Failed to fetch step data: ${response.status}`);
+          return;
+        }
+
+        const stepData: StepData = await response.json();
+        setCurrentStep(stepData);
+
+        // If no longer pending approval, we can slow down polling rate
+        if (!stepData.pending_approval && stepIntervalId) {
+          clearInterval(stepIntervalId);
+          stepIntervalId = setInterval(fetchStepData, 3000); // Slow polling when no approval needed
+        }
+
+      } catch (err) {
+        console.error('Error fetching step data:', err);
+        setStepError('Failed to fetch step information');
+      }
+    };
+
+    if (activeTask && activeTask.status.toLowerCase() === 'running') {
+      fetchStepData(); // Fetch immediately
+      stepIntervalId = setInterval(fetchStepData, 1000); // Poll every second for pending steps
+      console.log('Started polling for step data');
+    } else {
+      // Clear step data if task is not running
+      setCurrentStep(null);
+    }
+
+    return () => {
+      if (stepIntervalId) {
+        clearInterval(stepIntervalId);
+        console.log('Step polling stopped');
+      }
+    };
+  }, [activeTask]);
+
   // Function to handle task creation via API
   const handleCreateTask = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -147,6 +211,105 @@ export default function Home() {
     }
   };
 
+  // New function to handle step approval
+  const handleApproveStep = async () => {
+    if (!activeTask || !currentStep?.pending_approval) return;
+    
+    setStepLoading(true);
+    setStepError(null);
+    
+    try {
+      const apiUrl = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/tasks'}/${activeTask.id}/approve`;
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to approve step: ${response.status}`);
+      }
+      
+      // Clear current step since it's been approved
+      setCurrentStep(prev => prev ? {...prev, pending_approval: false} : null);
+      
+    } catch (err) {
+      console.error('Error approving step:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to approve step';
+      setStepError(errorMessage);
+    } finally {
+      setStepLoading(false);
+    }
+  };
+  
+  // New function to handle step rejection
+  const handleRejectStep = async () => {
+    if (!activeTask || !currentStep?.pending_approval) return;
+    
+    setStepLoading(true);
+    setStepError(null);
+    
+    try {
+      const apiUrl = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/tasks'}/${activeTask.id}/reject`;
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to reject step: ${response.status}`);
+      }
+      
+      // Update active task status to paused
+      setActiveTask(prev => prev ? {...prev, status: 'paused'} : null);
+      // Clear current step
+      setCurrentStep(null);
+      
+    } catch (err) {
+      console.error('Error rejecting step:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to reject step';
+      setStepError(errorMessage);
+    } finally {
+      setStepLoading(false);
+    }
+  };
+  
+  // New function to resume a paused task
+  const handleResumeTask = async () => {
+    if (!activeTask || activeTask.status.toLowerCase() !== 'paused') return;
+    
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      const apiUrl = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/tasks'}/${activeTask.id}/resume`;
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to resume task: ${response.status}`);
+      }
+      
+      // Update task status
+      const data = await response.json();
+      setActiveTask(prev => prev ? {...prev, status: data.status} : null);
+      
+    } catch (err) {
+      console.error('Error resuming task:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to resume task';
+      setError(errorMessage);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const toggleVnc = () => {
     setShowVnc(!showVnc);
   };
@@ -160,8 +323,8 @@ export default function Home() {
       return 'bg-red-100 text-red-800';
     } else if (status === 'in-progress' || status === 'running' || status === 'active') {
       return 'bg-yellow-100 text-yellow-800';
-    } else if (status === 'stopped') {
-      return 'bg-gray-100 text-gray-800'; // Style for stopped
+    } else if (status === 'stopped' || status === 'paused') {
+      return 'bg-gray-100 text-gray-800'; // Style for stopped/paused
     } else {
       return 'bg-blue-100 text-blue-800'; // Default (e.g., created, pending)
     }
@@ -179,12 +342,18 @@ export default function Home() {
     ].includes(lowerCaseStatus);
   };
 
+  // Helper function to check if task is paused
+  const isPaused = (status: string): boolean => {
+    return status.toLowerCase() === 'paused';
+  };
+
   // Function to reset to the initial task entry view
   const handleStartNewTask = () => {
     setActiveTask(null);
     setTaskDescription(''); // Optionally clear previous description
     setError(null); // Clear any previous errors
     setShowVnc(false); // Hide VNC when returning to start
+    setCurrentStep(null); // Clear step data
   };
 
   return (
@@ -204,7 +373,7 @@ export default function Home() {
                 value={taskDescription}
                 onChange={(e) => setTaskDescription(e.target.value)}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 mb-5 text-base text-gray-700 resize-none shadow-sm" // Use textarea for potentially longer inputs
-                placeholder="Describe the goal, e.g., 'Log into my bank account and download the statement for last month'"
+                placeholder="Describe the goal, e.g., &apos;Log into my bank account and download the statement for last month&apos;"
                 rows={3} // Adjust rows as needed
                 required
                 disabled={isLoading}
@@ -234,8 +403,11 @@ export default function Home() {
                 <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusBadgeClass(activeTask.status)}`}>
                   Status: {activeTask.status}
                 </span>
-                 <span className="text-sm text-gray-500 hidden sm:inline">|</span>
-                 <span className="text-sm text-gray-500 hidden sm:inline">Step 1/5</span> {/* Placeholder - Consider updating this too if backend provides step info */}
+                <span className="text-sm text-gray-500 hidden sm:inline">|</span>
+                {/* Update step counter from step data if available */}
+                <span className="text-sm text-gray-500 hidden sm:inline">
+                  {currentStep?.step_number ? `Step ${currentStep.step_number}` : 'Starting...'}
+                </span>
                 {/* VNC Toggle Button */}
                 <button
                     onClick={toggleVnc}
@@ -248,24 +420,24 @@ export default function Home() {
 
             {/* Browser View Area (Conditional VNC) */}
             <div className={`bg-gray-800 rounded-lg shadow-lg overflow-hidden transition-all duration-500 ease-in-out ${showVnc ? 'h-[600px] opacity-100' : 'h-0 opacity-0'} w-full flex items-center justify-center relative`}>
-               {/* VNC Screen is rendered conditionally based on visibility and existence */}
-               {showVnc && (
-                 <VncScreen
-                   url={'ws://localhost:5901'} // VNC WebSocket URL
-                   scaleViewport
-                   background="#1f2937" // Darker background matching the container
-                   style={{
-                     width: '100%',
-                     height: '100%',
-                   }}
-                   // Optional props:
-                   // debug={true}
-                   // onConnect={() => console.log('VNC Connected')}
-                   // onDisconnect={() => console.log('VNC Disconnected')}
-                   // onError={(err) => console.error('VNC Error:', err)}
-                 />
-               )}
-             </div>
+              {/* VNC Screen is rendered conditionally based on visibility and existence */}
+              {showVnc && (
+                <VncScreen
+                  url={'ws://localhost:5901'} // VNC WebSocket URL
+                  scaleViewport
+                  background="#1f2937" // Darker background matching the container
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                  }}
+                  // Optional props:
+                  // debug={true}
+                  // onConnect={() => console.log('VNC Connected')}
+                  // onDisconnect={() => console.log('VNC Disconnected')}
+                  // onError={(err) => console.error('VNC Error:', err)}
+                />
+              )}
+            </div>
 
             {/* Action Bar - Conditionally Rendered */}
             <div className="bg-white rounded-lg shadow-lg p-4 flex flex-col md:flex-row items-center justify-between gap-4">
@@ -279,27 +451,71 @@ export default function Home() {
                       Start New Task
                     </button>
                 </div>
+              ) : activeTask && isPaused(activeTask.status) ? (
+                // Paused State: Show Resume button
+                <div className="w-full flex justify-center">
+                  <button 
+                    onClick={handleResumeTask}
+                    className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 text-base font-medium transition duration-200 ease-in-out"
+                    disabled={isLoading}
+                  >
+                    {isLoading ? 'Resuming...' : 'Resume Task'}
+                  </button>
+                </div>
               ) : (
-                // Active/Ongoing State: Show standard action buttons
+                // Active/Ongoing State: Show approval buttons when step is pending
                 <>
                   <div className="flex-grow">
                     <span className="font-semibold text-gray-800 mr-2">Next Action:</span>
-                    <span className="text-gray-700">Navigating to Stripe login page...</span> {/* Placeholder */}
+                    <span className="text-gray-700">
+                      {currentStep?.action ? 
+                        JSON.stringify(currentStep.action).substring(0, 50) + '...' : 
+                        'Waiting for agent...'}
+                    </span>
                   </div>
                   <div className="flex space-x-2 flex-wrap gap-2 md:gap-0 md:flex-nowrap">
-                    <button className="bg-green-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-green-700 flex items-center focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition duration-150 ease-in-out">
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                    <button 
+                      onClick={handleApproveStep}
+                      disabled={!currentStep?.pending_approval || stepLoading}
+                      className={`bg-green-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-green-700 flex items-center focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition duration-150 ease-in-out ${(!currentStep?.pending_approval || stepLoading) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                       </svg>
                       Approve
                     </button>
-                    <button className="bg-gray-200 text-gray-700 px-4 py-2 rounded-md text-sm font-medium hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 transition duration-150 ease-in-out">Plan</button>
-                    <button className="bg-gray-200 text-gray-700 px-4 py-2 rounded-md text-sm font-medium hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 transition duration-150 ease-in-out">Edit</button>
-                    <button className="bg-red-500 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition duration-150 ease-in-out">Cancel Goal</button>
+                    <button 
+                      onClick={handleRejectStep}
+                      disabled={!currentStep?.pending_approval || stepLoading}
+                      className={`bg-red-500 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition duration-150 ease-in-out ${(!currentStep?.pending_approval || stepLoading) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                      Reject
+                    </button>
+                    <button 
+                      onClick={() => {}} // Placeholder for cancel task
+                      className="bg-gray-200 text-gray-700 px-4 py-2 rounded-md text-sm font-medium hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 transition duration-150 ease-in-out"
+                    >
+                      Cancel Goal
+                    </button>
                   </div>
                 </>
               )}
+              {stepError && (
+                <p className="text-red-600 text-sm p-2 bg-red-50 rounded-md w-full">{stepError}</p>
+              )}
             </div>
+            
+            {/* Display step thought details when available */}
+            {currentStep?.thought && currentStep.pending_approval && (
+              <div className="bg-white rounded-lg shadow-lg p-4">
+                <h3 className="font-semibold text-gray-800 mb-2">Agent&apos;s Thoughts:</h3>
+                <div className="bg-gray-50 p-3 rounded-md text-sm text-gray-700 max-h-40 overflow-y-auto">
+                  <pre className="whitespace-pre-wrap font-mono text-xs">
+                    {JSON.stringify(currentStep.thought, null, 2)}
+                  </pre>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

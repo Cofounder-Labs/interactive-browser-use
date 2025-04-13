@@ -28,6 +28,12 @@ class BrowserAgent:
         self.agent = None
         self.browser = None
         self._setup_logging()
+        self.paused = False
+        self.pending_approval = False
+        self.approved = False
+        self.rejected = False
+        self.current_step_data = {}
+        self.step_approval_event = asyncio.Event()
         
     def _setup_logging(self):
         """Set up logging with rich formatting."""
@@ -53,6 +59,92 @@ class BrowserAgent:
         if self.on_event:
             self.on_event(event)
     
+    async def on_step_start(self, agent):
+        """Handler for the on_step_start lifecycle hook"""
+        self.logger.debug("Step start hook triggered")
+        
+        # Capture the current state of the agent
+        current_page = await agent.browser_context.get_current_page()
+        screenshot = await agent.browser_context.take_screenshot()
+        
+        # Get model's thoughts and actions if available
+        thoughts = agent.state.history.model_thoughts()
+        latest_thought = thoughts[-1] if thoughts else None
+        
+        actions = agent.state.history.model_actions()
+        latest_action = actions[-1] if actions else None
+        
+        urls = agent.state.history.urls()
+        current_url = current_page.url if current_page else None
+        
+        # Store current step data
+        self.current_step_data = {
+            "url": current_url,
+            "thought": latest_thought,
+            "action": latest_action,
+            "screenshot": screenshot,
+            "step_number": len(actions)
+        }
+        
+        # Notify about pending approval
+        self.pending_approval = True
+        self._handle_event({
+            "type": "approval_needed",
+            "message": "Agent is waiting for action approval",
+            "data": self.current_step_data
+        })
+        
+        # Reset approval event and wait for approval
+        self.step_approval_event.clear()
+        self.approved = False
+        self.rejected = False
+        
+        # Wait for approval/rejection
+        await self.step_approval_event.wait()
+        
+        # Check if approved or rejected
+        if self.rejected:
+            self.logger.debug("Step was rejected, pausing agent")
+            agent.pause()
+            self._handle_event({
+                "type": "step_rejected",
+                "message": "User rejected the step, agent paused"
+            })
+        else:
+            self.logger.debug("Step was approved, continuing execution")
+            self._handle_event({
+                "type": "step_approved",
+                "message": "User approved the step"
+            })
+        
+        self.pending_approval = False
+    
+    async def approve_step(self):
+        """Approve the current step and allow the agent to continue"""
+        if not self.pending_approval:
+            return False
+        
+        self.approved = True
+        self.rejected = False
+        self.step_approval_event.set()
+        return True
+    
+    async def reject_step(self):
+        """Reject the current step and pause the agent"""
+        if not self.pending_approval:
+            return False
+        
+        self.approved = False
+        self.rejected = True
+        self.step_approval_event.set()
+        return True
+    
+    async def get_current_step(self):
+        """Get data about the current step that is pending approval"""
+        if not self.pending_approval:
+            return None
+        return self.current_step_data
+    
     async def start(self):
         """Start the agent and execute the task."""
         try:
@@ -77,10 +169,6 @@ class BrowserAgent:
                 )
             else:
                 raise ValueError("Either OPENAI_API_KEY or (AZURE_ENDPOINT and AZURE_OPENAI_API_KEY) environment variables are required")
-            
-            # NOTE: Removed redundant call to launch_chrome_with_debugging()
-            # The browser should already be launched by the app startup event.
-            # We just need to get the instance to connect to it.
             
             # Get browser instance (connects to the one launched at startup)
             self.browser = get_browser_instance()
@@ -119,7 +207,10 @@ class BrowserAgent:
             try:
                 # Set a timeout of 60 seconds for the task
                 async with asyncio.timeout(60):
-                    await self.agent.run()
+                    # Run the agent with the step approval hook
+                    await self.agent.run(
+                        on_step_start=self.on_step_start
+                    )
                     self.logger.debug("Task completed successfully")
             except asyncio.TimeoutError:
                 self.logger.error("Task timed out after 60 seconds")

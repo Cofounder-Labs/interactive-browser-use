@@ -36,6 +36,20 @@ class TaskInfo(BaseModel):
 class TaskStatusOnlyResponse(BaseModel):
     status: str
 
+# NEW: Step data model
+class StepDataResponse(BaseModel):
+    pending_approval: bool
+    url: Optional[str] = None
+    action: Optional[Dict[str, Any]] = None
+    thought: Optional[Dict[str, Any]] = None
+    screenshot: Optional[str] = None
+    step_number: Optional[int] = None
+
+# NEW: Approval response
+class ApprovalResponse(BaseModel):
+    success: bool
+    message: str
+
 # Store active tasks and their states
 # Structure: {task_id: {"agent": BrowserAgent, "description": str, "status": str, "events": []}}
 active_tasks: Dict[str, Dict[str, Any]] = {}
@@ -180,4 +194,121 @@ async def stop_task(task_id: str):
         logger.error(f"Task {task_id}: Error stopping task: {str(e)}")
         task_state["status"] = "failed" 
         await _handle_event(task_id, {"type": "error", "message": f"Error stopping task: {str(e)}"}) # Log stop error
-        raise HTTPException(status_code=500, detail=f"Failed to stop task cleanly: {str(e)}") 
+        raise HTTPException(status_code=500, detail=f"Failed to stop task cleanly: {str(e)}")
+
+# NEW: Get current step data endpoint
+@api_router.get("/tasks/{task_id}/step", response_model=StepDataResponse)
+async def get_step_data(task_id: str):
+    """Gets information about the current step waiting for approval."""
+    if task_id not in active_tasks:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    task_state = active_tasks[task_id]
+    agent = task_state["agent"]
+    
+    # Get current step data from agent
+    step_data = await agent.get_current_step()
+    
+    if step_data is None:
+        # No pending step
+        return StepDataResponse(pending_approval=False)
+    
+    return StepDataResponse(
+        pending_approval=True,
+        url=step_data.get("url"),
+        action=step_data.get("action"),
+        thought=step_data.get("thought"),
+        screenshot=step_data.get("screenshot"),
+        step_number=step_data.get("step_number")
+    )
+
+# NEW: Approve step endpoint
+@api_router.post("/tasks/{task_id}/approve", response_model=ApprovalResponse)
+async def approve_step(task_id: str):
+    """Approves the current step, allowing the agent to proceed."""
+    if task_id not in active_tasks:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    task_state = active_tasks[task_id]
+    agent = task_state["agent"]
+    
+    # Check if task is in a state that can be approved
+    if task_state["status"] not in ["running"]:
+        return ApprovalResponse(
+            success=False,
+            message=f"Task is in '{task_state['status']}' state and cannot be approved"
+        )
+    
+    # Try to approve the step
+    success = await agent.approve_step()
+    
+    if success:
+        await _handle_event(task_id, {"type": "user_action", "message": "User approved the step"})
+        return ApprovalResponse(success=True, message="Step approved successfully")
+    else:
+        return ApprovalResponse(success=False, message="No step is pending approval")
+
+# NEW: Reject step endpoint
+@api_router.post("/tasks/{task_id}/reject", response_model=ApprovalResponse)
+async def reject_step(task_id: str):
+    """Rejects the current step, causing the agent to pause."""
+    if task_id not in active_tasks:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    task_state = active_tasks[task_id]
+    agent = task_state["agent"]
+    
+    # Check if task is in a state that can be rejected
+    if task_state["status"] not in ["running"]:
+        return ApprovalResponse(
+            success=False,
+            message=f"Task is in '{task_state['status']}' state and cannot be rejected"
+        )
+    
+    # Try to reject the step
+    success = await agent.reject_step()
+    
+    if success:
+        task_state["status"] = "paused"
+        await _handle_event(task_id, {"type": "user_action", "message": "User rejected the step, agent paused"})
+        return ApprovalResponse(success=True, message="Step rejected, agent paused")
+    else:
+        return ApprovalResponse(success=False, message="No step is pending approval")
+
+# NEW: Resume paused task endpoint
+@api_router.post("/tasks/{task_id}/resume", response_model=TaskInfo)
+async def resume_task(task_id: str):
+    """Resumes a paused task."""
+    if task_id not in active_tasks:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    task_state = active_tasks[task_id]
+    agent = task_state["agent"]
+    
+    # Check if task is paused
+    if task_state["status"] != "paused":
+        return TaskInfo(
+            task_id=task_id,
+            description=task_state["description"],
+            status=task_state["status"],
+            message=f"Task is in '{task_state['status']}' state and cannot be resumed"
+        )
+    
+    try:
+        # Only resume if the agent exists
+        if agent.agent:
+            agent.agent.resume()
+            task_state["status"] = "running"
+            await _handle_event(task_id, {"type": "user_action", "message": "User resumed the task"})
+            return TaskInfo(
+                task_id=task_id,
+                description=task_state["description"],
+                status="running",
+                message="Task resumed successfully"
+            )
+        else:
+            logger.error(f"Task {task_id}: Cannot resume as agent is not initialized")
+            raise HTTPException(status_code=400, detail="Cannot resume task, agent not initialized")
+    except Exception as e:
+        logger.error(f"Task {task_id}: Error resuming task: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to resume task: {str(e)}") 
