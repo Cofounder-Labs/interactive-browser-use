@@ -18,7 +18,8 @@ import {
   Check,
   Play,
   Info,
-  MessageSquare
+  MessageSquare,
+  Laptop
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -599,20 +600,32 @@ export default function Home() {
 
             <div className="relative w-full">
               <div
-                className={`bg-card/50 rounded-lg shadow-lg overflow-hidden transition-all duration-700 ease-in-out ${
+                className={`bg-card/50 rounded-lg shadow-lg overflow-hidden transition-all duration-700 ease-in-out flex flex-col ${
                   showVnc ? "h-[600px] opacity-100 transform-none" : "h-0 opacity-0 transform -translate-y-10"
-                } w-full flex items-center justify-center relative border`}
+                } w-full relative border`}
               >
                 {showVnc && (
-                  <VncScreen
-                    url={"ws://localhost:5901"}
-                    scaleViewport
-                    background="transparent"
-                    style={{
-                      width: "100%",
-                      height: "100%",
-                    }}
-                  />
+                  <>
+                    <div className="bg-zinc-800 p-2 flex items-center justify-between border-b border-zinc-700 text-white flex-shrink-0">
+                      <div className="flex items-center gap-2">
+                        <Laptop className="h-4 w-4" />
+                        <span className="text-sm font-medium">Remote Browser</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs px-2 py-0.5 bg-zinc-700 rounded-full">Secure Connection</span>
+                      </div>
+                    </div>
+                    <VncScreen
+                      url={"ws://localhost:5901"}
+                      scaleViewport
+                      background="transparent"
+                      style={{
+                        width: "100%",
+                        height: "100%",
+                        flex: "1 1 auto"
+                      }}
+                    />
+                  </>
                 )}
               </div>
               {activeTask && !showVnc && !isTerminalStatus(activeTask.status) && !isPaused(activeTask.status) && (
