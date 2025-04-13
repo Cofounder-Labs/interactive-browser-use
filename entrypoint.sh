@@ -1,33 +1,72 @@
 #!/bin/bash
 set -e
 
-# Start Xvfb (virtual framebuffer) on display :99
-# -screen 0 1280x1024x24: Create screen 0 with 1280x1024 resolution and 24-bit color depth
-# -nolisten tcp: Disable TCP connections to the X server (more secure)
-# -ac: Disable access control
-Xvfb :99 -screen 0 1280x1024x24 -nolisten tcp -ac & 
+# Define display number
+DISPLAY_NUM=99
+export DISPLAY=:${DISPLAY_NUM}
+
+echo "Setting up X server on display :${DISPLAY_NUM}"
+
+# Clean up potential stale lock files
+rm -f /tmp/.X${DISPLAY_NUM}-lock || true
+rm -f /tmp/.X11-unix/X${DISPLAY_NUM} || true
+
+# Start Xvfb with error output capture for debugging
+echo "Starting Xvfb on display :${DISPLAY_NUM}"
+Xvfb :${DISPLAY_NUM} -screen 0 1280x1024x24 -nolisten tcp -ac &> /tmp/xvfb.log & 
 XVFBPID=$!
 
-# Set the DISPLAY environment variable for subsequent GUI applications
-export DISPLAY=:99
+# Wait to ensure Xvfb is ready
+sleep 2
 
-# Start x11vnc
-# -display :99: Connect to the display served by Xvfb
-# -nopw: Do not require a password (simpler for this setup)
-# -forever: Keep running even after the first client disconnects
-# -shared: Allow multiple clients to connect simultaneously
-# -rfbport 5900: Listen on port 5900
-# -xkb: Use X keyboard extension
-# -noxrecord: Disable X Record extension (potential compatibility fix)
-x11vnc -display :99 -nopw -forever -shared -rfbport 5900 -xkb -noxrecord &
+# Verify Xvfb is running
+if ! ps -p $XVFBPID > /dev/null; then
+    echo "ERROR: Xvfb failed to start! Check log output:"
+    cat /tmp/xvfb.log
+    exit 1
+fi
+
+echo "Xvfb started successfully with PID $XVFBPID"
+
+# Start x11vnc with output redirected for debugging
+echo "Starting x11vnc server on port 5900"
+x11vnc -display :${DISPLAY_NUM} -nopw -forever -shared -rfbport 5900 -xkb -noxrecord &> /tmp/x11vnc.log &
 X11VNCPID=$!
 
-echo "Starting Xvfb (PID: $XVFBPID), x11vnc (PID: $X11VNCPID)"
-echo "VNC server running on port 5900 (exposed by docker-compose)"
+# Verify x11vnc is running
+sleep 1
+if ! ps -p $X11VNCPID > /dev/null; then
+    echo "ERROR: x11vnc failed to start! Check log output:"
+    cat /tmp/x11vnc.log
+    exit 1
+fi
+
+echo "x11vnc started successfully with PID $X11VNCPID"
+echo "VNC server is running on port 5900"
+
+# Start websockify for WebSocket VNC access (if installed)
+if command -v websockify &> /dev/null; then
+    echo "Starting websockify on port 5901"
+    websockify --web=/usr/share/novnc 5901 localhost:5900 &> /tmp/websockify.log &
+    WEBSOCKIFYPID=$!
+    
+    sleep 1
+    if ! ps -p $WEBSOCKIFYPID > /dev/null; then
+        echo "WARNING: websockify failed to start! Check log output:"
+        cat /tmp/websockify.log
+    else
+        echo "websockify started successfully with PID $WEBSOCKIFYPID"
+        echo "WebSocket access available on port 5901"
+        # Add websockify to cleanup trap
+        trap "kill $WEBSOCKIFYPID $X11VNCPID $XVFBPID" EXIT
+    fi
+else
+    echo "websockify not found, skipping WebSocket VNC setup"
+    trap "kill $X11VNCPID $XVFBPID" EXIT
+fi
+
+echo "X11/VNC environment setup complete"
 echo "Executing command: $@"
 
-# Execute the command passed to the entrypoint (e.g., the CMD from Dockerfile)
-exec "$@"
-
-# Optional: Cleanup on exit (might not always run depending on how container stops)
-trap "kill $X11VNCPID $XVFBPID" EXIT 
+# Execute the command passed to the entrypoint
+exec "$@" 

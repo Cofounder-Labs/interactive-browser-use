@@ -41,7 +41,7 @@ class StepDataResponse(BaseModel):
     pending_approval: bool
     url: Optional[str] = None
     action: Optional[Dict[str, Any]] = None
-    thought: Optional[Dict[str, Any]] = None
+    thought: Optional[Any] = None  # Change type to Any to accept various thought formats
     screenshot: Optional[str] = None
     step_number: Optional[int] = None
 
@@ -213,11 +213,39 @@ async def get_step_data(task_id: str):
         # No pending step
         return StepDataResponse(pending_approval=False)
     
+    # Convert thought to dictionary if it's not already
+    thought = step_data.get("thought")
+    if thought is not None:
+        try:
+            # Try to convert to dictionary if it's a serializable object
+            if hasattr(thought, "__dict__"):
+                thought = thought.__dict__
+            else:
+                # Fall back to converting to string
+                thought = {"content": str(thought)}
+        except Exception as e:
+            logger.warning(f"Failed to serialize thought: {str(e)}")
+            thought = {"content": str(thought)}
+    
+    # Convert action to dictionary if it's not already
+    action = step_data.get("action")
+    if action is not None and not isinstance(action, dict):
+        try:
+            # Try to convert to dictionary if it's a serializable object
+            if hasattr(action, "__dict__"):
+                action = action.__dict__
+            else:
+                # Fall back to converting to string
+                action = {"content": str(action)}
+        except Exception as e:
+            logger.warning(f"Failed to serialize action: {str(e)}")
+            action = {"content": str(action)}
+    
     return StepDataResponse(
         pending_approval=True,
         url=step_data.get("url"),
-        action=step_data.get("action"),
-        thought=step_data.get("thought"),
+        action=action,
+        thought=thought,
         screenshot=step_data.get("screenshot"),
         step_number=step_data.get("step_number")
     )

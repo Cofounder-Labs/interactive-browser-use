@@ -465,32 +465,81 @@ export default function Home() {
               ) : (
                 // Active/Ongoing State: Show approval buttons when step is pending
                 <>
+                  {currentStep?.pending_approval ? (
+                    // Show notification banner when approval is needed
+                    <div className="w-full bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-4 rounded">
+                      <div className="flex items-center">
+                        <div className="flex-shrink-0">
+                          <svg className="h-5 w-5 text-yellow-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                          </svg>
+                        </div>
+                        <div className="ml-3">
+                          <p className="text-sm text-yellow-700">
+                            <span className="font-bold">Awaiting your approval:</span> The agent is waiting for you to approve or reject the next action before continuing.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    // Show processing indicator when agent is thinking
+                    <div className="w-full bg-blue-50 border-l-4 border-blue-400 p-4 mb-4 rounded">
+                      <div className="flex items-center">
+                        <div className="flex-shrink-0">
+                          <svg className="animate-spin h-5 w-5 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                        </div>
+                        <div className="ml-3">
+                          <p className="text-sm text-blue-700">
+                            <span className="font-medium">Processing:</span> The agent is analyzing the page and determining the next action...
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   <div className="flex-grow">
-                    <span className="font-semibold text-gray-800 mr-2">Next Action:</span>
-                    <span className="text-gray-700">
-                      {currentStep?.action ? 
-                        JSON.stringify(currentStep.action).substring(0, 50) + '...' : 
-                        'Waiting for agent...'}
-                    </span>
+                    <div className="flex flex-col">
+                      <span className="font-semibold text-gray-800 mb-1">Next Action:</span>
+                      <span className="text-gray-700 bg-gray-50 p-2 rounded">
+                        {currentStep?.action ? 
+                          JSON.stringify(currentStep.action).substring(0, 100) + (JSON.stringify(currentStep.action).length > 100 ? '...' : '') : 
+                          'Waiting for agent...'}
+                      </span>
+                    </div>
                   </div>
                   <div className="flex space-x-2 flex-wrap gap-2 md:gap-0 md:flex-nowrap">
-                    <button 
-                      onClick={handleApproveStep}
-                      disabled={!currentStep?.pending_approval || stepLoading}
-                      className={`bg-green-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-green-700 flex items-center focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition duration-150 ease-in-out ${(!currentStep?.pending_approval || stepLoading) ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                      </svg>
-                      Approve
-                    </button>
-                    <button 
-                      onClick={handleRejectStep}
-                      disabled={!currentStep?.pending_approval || stepLoading}
-                      className={`bg-red-500 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition duration-150 ease-in-out ${(!currentStep?.pending_approval || stepLoading) ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    >
-                      Reject
-                    </button>
+                    {currentStep?.pending_approval ? (
+                      // Only show approval buttons when action is pending approval
+                      <>
+                        <button 
+                          onClick={handleApproveStep}
+                          disabled={stepLoading}
+                          className={`bg-green-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-green-700 flex items-center focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition duration-150 ease-in-out ${stepLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                          </svg>
+                          {stepLoading ? 'Processing...' : 'Approve'}
+                        </button>
+                        <button 
+                          onClick={handleRejectStep}
+                          disabled={stepLoading}
+                          className={`bg-red-500 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition duration-150 ease-in-out ${stepLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        >
+                          {stepLoading ? 'Processing...' : 'Reject'}
+                        </button>
+                      </>
+                    ) : (
+                      // Show a disabled placeholder button when no action is pending
+                      <button 
+                        disabled
+                        className="bg-gray-200 text-gray-500 px-4 py-2 rounded-md text-sm font-medium cursor-not-allowed"
+                      >
+                        Waiting for action...
+                      </button>
+                    )}
                     <button 
                       onClick={() => {}} // Placeholder for cancel task
                       className="bg-gray-200 text-gray-700 px-4 py-2 rounded-md text-sm font-medium hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 transition duration-150 ease-in-out"
@@ -508,7 +557,12 @@ export default function Home() {
             {/* Display step thought details when available */}
             {currentStep?.thought && currentStep.pending_approval && (
               <div className="bg-white rounded-lg shadow-lg p-4">
-                <h3 className="font-semibold text-gray-800 mb-2">Agent&apos;s Thoughts:</h3>
+                <div className="flex items-center mb-2">
+                  <svg className="h-5 w-5 text-purple-500 mr-2" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.707l-3-3a1 1 0 00-1.414 0l-3 3a1 1 0 001.414 1.414L9 9.414V13a1 1 0 102 0V9.414l1.293 1.293a1 1 0 001.414-1.414z" clipRule="evenodd" transform="rotate(180 10 10)"></path>
+                  </svg>
+                  <h3 className="font-semibold text-gray-800">Agent&apos;s Thoughts:</h3>
+                </div>
                 <div className="bg-gray-50 p-3 rounded-md text-sm text-gray-700 max-h-40 overflow-y-auto">
                   <pre className="whitespace-pre-wrap font-mono text-xs">
                     {JSON.stringify(currentStep.thought, null, 2)}

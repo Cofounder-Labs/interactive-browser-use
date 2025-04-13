@@ -25,11 +25,12 @@ WORKDIR /app
 COPY poetry.lock pyproject.toml ./
 
 # Copy the rest of the application code
-COPY ./src ./src
+COPY ./src/browser-use-src ./src/browser-use-src
 
 # Install project dependencies
 # --no-dev is deprecated, use --only main instead if needed, but we might need dev deps for browser-use
-RUN poetry install --no-interaction --no-ansi
+RUN poetry install --no-interaction --no-ansi --only main && \
+    rm -rf /root/.cache/pypoetry /root/.cache/pip
 
 # Install Chromium and VNC components
 RUN apt-get update && apt-get install --no-install-recommends -y chromium xvfb x11vnc && apt-get clean && rm -rf /var/lib/apt/lists/*

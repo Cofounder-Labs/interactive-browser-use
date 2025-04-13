@@ -37,9 +37,9 @@ def launch_chrome_with_debugging(port: int = 9222, app_port: int = 8000) -> bool
         if response.status_code == 200:
             print("Chrome/Chromium is already running with remote debugging enabled")
             return True
-    except requests.exceptions.ConnectionError:
+    except requests.exceptions.ConnectionError as e:
         pass # Proceed with launch
-    
+
     # Kill existing processes (be careful with this in containers)
     if platform.system() == "Darwin": # Only pkill on Mac for safety
         subprocess.run(['pkill', '-f', f'remote-debugging-port={port}'])
@@ -57,7 +57,7 @@ def launch_chrome_with_debugging(port: int = 9222, app_port: int = 8000) -> bool
         launch_cmd.extend([
             '--no-sandbox', # Often needed in Docker
             '--disable-gpu', # Still often needed
-            '--disable-dev-shm-usage' # Overcomes limited resource problems
+            '--disable-dev-shm-usage', # Overcomes limited resource problems
         ])
     else: # macOS specific - open the app URL
          launch_cmd.append(f'http://localhost:{app_port}')

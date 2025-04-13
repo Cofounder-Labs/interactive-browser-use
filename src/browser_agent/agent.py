@@ -206,7 +206,7 @@ class BrowserAgent:
             
             try:
                 # Set a timeout of 60 seconds for the task
-                async with asyncio.timeout(60):
+                async with asyncio.timeout(600):
                     # Run the agent with the step approval hook
                     await self.agent.run(
                         on_step_start=self.on_step_start
