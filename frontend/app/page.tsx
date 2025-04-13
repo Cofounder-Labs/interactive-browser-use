@@ -65,7 +65,7 @@ export default function Home() {
   const [taskDescription, setTaskDescription] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [showVnc, setShowVnc] = useState(true)
+  const [showVnc, setShowVnc] = useState(false)
 
   // New state for step approval
   const [currentStep, setCurrentStep] = useState<StepData | null>(null);
@@ -89,10 +89,11 @@ export default function Home() {
         // Use the imported fetchTaskStatus function
         const data = await fetchTaskStatus(activeTask.id)
         const newStatus = data.status
+        const lowerCaseStatus = newStatus.toLowerCase()
 
         setActiveTask((prevTask) => {
           if (prevTask && prevTask.id === activeTask.id && prevTask.status !== newStatus) {
-            if (newStatus.toLowerCase() !== 'running') {
+            if (lowerCaseStatus !== 'running') {
               setCurrentStep(null);
               setLatestThought(null);
             }
@@ -101,8 +102,7 @@ export default function Home() {
           return prevTask
         })
 
-        // Stop polling if task is complete or failed
-        const lowerCaseStatus = newStatus.toLowerCase()
+        // Stop polling if task is complete or failed or paused
         if (
           isTerminalStatus(lowerCaseStatus) || isPaused(lowerCaseStatus)
         ) {
@@ -123,6 +123,7 @@ export default function Home() {
       console.log("Started polling for task status:", activeTask.id)
     } else if (intervalId) {
         clearInterval(intervalId);
+        // Don't hide VNC here automatically, allow manual control or terminal status to hide
         console.log("Status polling stopped.");
     }
 
@@ -134,6 +135,22 @@ export default function Home() {
       }
     }
   }, [activeTask])
+
+  // New useEffect specifically for handling VNC visibility based on status
+  useEffect(() => {
+    if (activeTask) {
+      const lowerCaseStatus = activeTask.status.toLowerCase();
+      const isActiveStatus = ["running", "in-progress", "active"].includes(lowerCaseStatus);
+      if (isActiveStatus) {
+        console.log("Task status is active, showing VNC.");
+        setShowVnc(true);
+      } else if (isTerminalStatus(lowerCaseStatus)) {
+        console.log("Task status is terminal.");
+      } else if (isPaused(lowerCaseStatus)) {
+          console.log("Task is paused.");
+      }
+    }
+  }, [activeTask?.status]); // Depend specifically on the status string change
 
   // Combined polling logic for step/action data
   useEffect(() => {
@@ -292,7 +309,6 @@ export default function Home() {
         description: createdTask.description,
         status: createdTask.status,
       })
-      setShowVnc(true)
     } catch (err: unknown) {
       console.error("Failed to create task:", err)
       let errorMessage = "Failed to start task. Please check backend connection."
@@ -304,6 +320,10 @@ export default function Home() {
       setShowVnc(false)
     } finally {
       setIsLoading(false)
+      setLatestThought(null);
+      setDisplayedText("");
+      setStepError(null);
+      if (typewriterIntervalRef.current) clearInterval(typewriterIntervalRef.current);
     }
   }
 
@@ -577,19 +597,31 @@ export default function Home() {
               </CardContent>
             </Card>
 
-            <div
-              className={`bg-card/50 rounded-lg shadow-lg overflow-hidden transition-all duration-500 ease-in-out ${ showVnc ? "h-[600px] opacity-100" : "h-0 opacity-0" } w-full flex items-center justify-center relative border`}
-            >
-              {showVnc && (
-                <VncScreen
-                  url={"ws://localhost:5901"}
-                  scaleViewport
-                  background="transparent"
-                  style={{
-                    width: "100%",
-                    height: "100%",
-                  }}
-                />
+            <div className="relative w-full">
+              <div
+                className={`bg-card/50 rounded-lg shadow-lg overflow-hidden transition-all duration-700 ease-in-out ${
+                  showVnc ? "h-[600px] opacity-100 transform-none" : "h-0 opacity-0 transform -translate-y-10"
+                } w-full flex items-center justify-center relative border`}
+              >
+                {showVnc && (
+                  <VncScreen
+                    url={"ws://localhost:5901"}
+                    scaleViewport
+                    background="transparent"
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                    }}
+                  />
+                )}
+              </div>
+              {activeTask && !showVnc && !isTerminalStatus(activeTask.status) && !isPaused(activeTask.status) && (
+                <div className="h-20 flex items-center justify-center rounded-lg border border-dashed border-muted-foreground/50 bg-muted/20 my-5">
+                  <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                    <Loader2 className="h-6 w-6 animate-spin" />
+                    <p>Preparing browser session...</p>
+                  </div>
+                </div>
               )}
             </div>
 
@@ -620,10 +652,10 @@ export default function Home() {
                       <AlertTriangle className="h-4 w-4" />
                       <AlertTitle>Approval Needed</AlertTitle>
                       <AlertDescription>
-                         The agent proposes the action: <strong>{
+                         The agent is proposing the following: <strong>{
                           currentStep.next_goal
                         
-                        }</strong>. Please approve or reject.
+                        }</strong> Please approve or reject.
                       </AlertDescription>
                     </Alert>
                  ) : activeTask.status.toLowerCase() === 'running' && !isTerminalStatus(activeTask.status) && !isPaused(activeTask.status) ? (
