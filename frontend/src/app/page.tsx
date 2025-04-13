@@ -32,6 +32,7 @@ interface StepData {
   index?: number;
   total?: number;
   next_goal?: string;
+  human_readable_description?: string;
 }
 
 // Define interfaces for the action data
@@ -45,6 +46,7 @@ interface ActionData {
   total?: number;
   url?: string;
   step_number?: number;
+  human_readable_description?: string;
 }
 
 export default function Home() {
@@ -587,11 +589,13 @@ export default function Home() {
                     <div className="flex flex-col">
                       <span className="font-semibold text-gray-800 mb-1">Next Action:</span>
                       <span className="text-gray-700 bg-gray-50 p-2 rounded">
-                        {currentStep?.action_name ? 
-                          `${currentStep.action_name}: ${JSON.stringify(currentStep.action_details)}` :
-                          (currentStep?.action ? 
-                            JSON.stringify(currentStep.action).substring(0, 100) + (JSON.stringify(currentStep.action).length > 100 ? '...' : '') : 
-                            'Waiting for agent...')}
+                        {currentStep?.human_readable_description ? 
+                          currentStep.human_readable_description :
+                          (currentStep?.action_name ? 
+                            `${currentStep.action_name}: ${JSON.stringify(currentStep.action_details)}` :
+                            (currentStep?.action ? 
+                              JSON.stringify(currentStep.action).substring(0, 100) + (JSON.stringify(currentStep.action).length > 100 ? '...' : '') : 
+                              'Waiting for agent...'))}
                       </span>
                     </div>
                   </div>
