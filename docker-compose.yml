@@ -36,7 +36,7 @@ services:
       NEXT_PUBLIC_API_URL: http://backend:8000/api/tasks
     depends_on:
       - backend
-    volumes:
-      - ./frontend:/app/frontend # Mount frontend code for dev hot-reloading (optional)
-      - /app/frontend/node_modules # Prevent host node_modules from overriding container
-      - /app/frontend/.next # Prevent host .next from overriding container 
+    # volumes:
+    #   - ./frontend:/app/frontend # Mount frontend code for dev hot-reloading (optional)
+    #   - /app/frontend/node_modules # Prevent host node_modules from overriding container
+    #   - /app/frontend/.next # Prevent host .next from overriding container 

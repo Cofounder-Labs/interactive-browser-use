@@ -308,7 +308,7 @@ export default function Home() {
       setActiveTask({
         id: createdTask.task_id,
         description: createdTask.description,
-        status: createdTask.status,
+        status: 'created',
       })
     } catch (err: unknown) {
       console.error("Failed to create task:", err)
@@ -419,42 +419,48 @@ export default function Home() {
   // --- Helper Functions & UI Components ---
 
   const getStatusBadge = (status: string) => {
-    status = status.toLowerCase()
+   
 
     if (status === "complete" || status === "completed") {
       return (
-        <Badge variant="success" className="gap-1">
+        <Badge key={status} variant="success" className="gap-1">
           <CheckCircle2 className="h-3 w-3" /> Completed
         </Badge>
       )
-    } else if (status === "failed" || status === "error") {
+    } else if (status === "failed") {
       return (
-        <Badge variant="destructive" className="gap-1">
+        <Badge key={status} variant="destructive" className="gap-1">
           <CircleX className="h-3 w-3" /> Failed
         </Badge>
       )
-    } else if (status === "in-progress" || status === "running" || status === "active") {
+    } else if (status === "running") {
       return (
-        <Badge variant="default" className="gap-1 bg-blue-500 hover:bg-blue-600">
+        <Badge key={status} variant="default" className="gap-1 bg-blue-500 hover:bg-blue-600">
           <Loader2 className="h-3 w-3 animate-spin" /> Running
         </Badge>
       )
+    } else if (status.toLowerCase() === "created") {
+        return (
+          <Badge key={status} variant="secondary" className="gap-1">
+            <Loader2 className="h-3 w-3 animate-spin" /> Task Created
+          </Badge>
+        )
     } else if (status === "stopped") {
       return (
-        <Badge variant="outline" className="gap-1">
+        <Badge key={status} variant="outline" className="gap-1">
           <XCircle className="h-3 w-3" /> Stopped
         </Badge>
       )
     } else if (status === "paused") {
         return (
-          <Badge variant="secondary" className="gap-1 bg-yellow-500 hover:bg-yellow-600">
+          <Badge key={status} variant="secondary" className="gap-1 bg-yellow-500 hover:bg-yellow-600">
             <CircleX className="h-3 w-3" /> Paused
           </Badge>
         )
     } else {
       return (
-        <Badge variant="secondary" className="gap-1">
-          <Loader2 className="h-3 w-3" /> {status.charAt(0).toUpperCase() + status.slice(1)}
+        <Badge key={status} variant="secondary" className="gap-1">
+          <Loader2 className="h-3 w-3 animate-spin" /> Task Created
         </Badge>
       )
     }
@@ -572,7 +578,7 @@ export default function Home() {
                   </span>
                 </div>
                 <div className="flex items-center space-x-4 flex-shrink-0">
-                  {getStatusBadge(activeTask.status)}
+                  {getStatusBadge(activeTask.status.toLowerCase())}
                   <Separator orientation="vertical" className="h-6 hidden sm:block" />
                   <span className="text-sm text-muted-foreground hidden sm:inline">
                     {currentStep?.index && currentStep?.total
