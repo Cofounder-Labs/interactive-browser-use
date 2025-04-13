@@ -1,0 +1,16 @@
+{
+  "name": "Interactive Browser Session",
+  "short_name": "Browser Session",
+  "description": "Perform automated tasks in a browser session",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#7c3aed",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "64x64",
+      "type": "image/x-icon"
+    }
+  ]
+}
