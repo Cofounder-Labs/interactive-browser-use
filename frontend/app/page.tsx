@@ -539,9 +539,9 @@ export default function Home() {
             <CardHeader className="text-center">
               <div className="flex items-center justify-center mb-2">
                 <BrainCircuit className="h-8 w-8 text-primary mr-3" />
-                <CardTitle className="text-2xl">Interactive Browser Session</CardTitle>
+                <CardTitle className="text-2xl">Interactive Browser Use</CardTitle>
               </div>
-              <CardDescription className="text-lg">What task should be performed?</CardDescription>
+              <CardDescription className="text-lg">What can I help you with?</CardDescription>
             </CardHeader>
             <CardContent>
               <form onSubmit={handleCreateTask}>
