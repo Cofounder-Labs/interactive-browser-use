@@ -97,3 +97,26 @@ This project is built upon the excellent work of the `browser-use` team. We util
 
 - Ritanshu Dokania
 - Re Solver
+
+## Citation
+
+If you use Interactive Browser Use in your research or project, please cite:
+
+```bibtex
+@software{interactive_browser_use2025,
+  author = {Dokania, Ritanshu and Solver, Re},
+  title = {Interactive Browser Use: Make Browser Use Interactive},
+  year = {2025},
+  publisher = {GitHub},
+  url = {https://github.com/Cofounder-Labs/interactive-browser-use}
+}
+```
+ 
+[![Twitter Follow](https://img.shields.io/twitter/follow/ReSolver?style=social)](https://x.com/ritanshu675)
+[![Twitter Follow](https://img.shields.io/twitter/follow/Ritanshu?style=social)](https://x.com/re_solv)
+ 
+ </div>
+
+<div align="center">
+Made with ❤️ in San Francisco
+ </div>
