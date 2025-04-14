@@ -89,6 +89,10 @@ interactive-browser-use/
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
+## Acknowledgements
+
+This project is built upon the excellent work of the `browser-use` team. We utilize their powerful [browser-use library](https://github.com/browser-use/browser-use) for the core browser automation capabilities. Many thanks to them for providing such a valuable open-source tool!
+
 ## Contributors
 
 - Ritanshu Dokania
