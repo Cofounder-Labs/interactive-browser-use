@@ -112,8 +112,8 @@ If you use Interactive Browser Use in your research or project, please cite:
 }
 ```
  
-[![Twitter Follow](https://img.shields.io/twitter/follow/ReSolver?style=social)](https://x.com/ritanshu675)
-[![Twitter Follow](https://img.shields.io/twitter/follow/Ritanshu?style=social)](https://x.com/re_solv)
+[![Twitter Follow](https://img.shields.io/twitter/follow/ReSolver?style=social)](https://x.com/re_solv)
+[![Twitter Follow](https://img.shields.io/twitter/follow/Ritanshu?style=social)](https://x.com/ritanshu675)
  
  </div>
 
