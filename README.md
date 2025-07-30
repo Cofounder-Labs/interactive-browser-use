@@ -2,6 +2,11 @@
 
 A web-based interface allowing users to direct, observe, and control an AI agent performing browser automation tasks in real-time with interactive step approval.
 
+## 🎥 Demo Video
+
+[![Watch the video](https://img.youtube.com/vi/8SGkuStEQLw/maxresdefault.jpg)](https://youtu.be/8SGkuStEQLw)
+
+
 🚀 **Take control of browser automation like never before!** This project provides a hands-on web UI where you can collaborate with an AI agent, guiding its browsing actions step-by-step. Watch it navigate, interact with elements, and complete tasks, all under your supervision.
 
 ## Key Features
